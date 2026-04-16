@@ -1,7 +1,8 @@
 import { defineConfig, devices } from "@playwright/test";
 
 const port = process.env.E2E_PORT ?? "3010";
-const baseURL = `http://localhost:${port}`;
+const baseURL = process.env.E2E_BASE_URL ?? `http://localhost:${port}`;
+const useWebServer = !process.env.E2E_BASE_URL;
 
 export default defineConfig({
   testDir: "./tests/e2e",
@@ -18,12 +19,14 @@ export default defineConfig({
     screenshot: "only-on-failure",
     video: "retain-on-failure",
   },
-  webServer: {
-    command: `npm run dev -- --port ${port}`,
-    url: baseURL,
-    reuseExistingServer: true,
-    timeout: 120_000,
-  },
+  webServer: useWebServer
+    ? {
+        command: `npm run dev -- --port ${port}`,
+        url: baseURL,
+        reuseExistingServer: true,
+        timeout: 120_000,
+      }
+    : undefined,
   projects: [
     {
       name: "chromium",
