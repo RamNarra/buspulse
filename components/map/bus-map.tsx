@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import MapRoundedIcon from "@mui/icons-material/MapRounded";
 import RoomRoundedIcon from "@mui/icons-material/RoomRounded";
 import SyncRoundedIcon from "@mui/icons-material/SyncRounded";
-import { Box, CircularProgress, Chip, Stack, Typography } from "@mui/material";
+import { Box, Button, CircularProgress, Chip, Stack, Typography } from "@mui/material";
 
 import { getPublicRuntimeEnv, getSetupStatus } from "@/lib/config/env";
 import type { Bus, BusLocation } from "@/types/models";
@@ -61,34 +61,31 @@ function loadGoogleMapsScript(apiKey: string): Promise<void> {
     if (existingScript) {
       const status = existingScript.dataset.buspulseStatus;
       if (status === "error") {
+        existingScript.remove();
         googleMapsScriptPromise = null;
-        reject(new Error("Google Maps script failed to load."));
-        return;
-      }
-
-      if (status === "loaded" && globalWindow.google?.maps) {
+      } else if (status === "loaded" && globalWindow.google?.maps) {
         resolve();
         return;
+      } else {
+        const onLoad = () => {
+          if ((window as WindowWithGoogleMaps).google?.maps) {
+            resolve();
+            return;
+          }
+
+          googleMapsScriptPromise = null;
+          reject(new Error("Google Maps script loaded without maps namespace."));
+        };
+
+        const onError = () => {
+          googleMapsScriptPromise = null;
+          reject(new Error("Google Maps script failed to load."));
+        };
+
+        existingScript.addEventListener("load", onLoad, { once: true });
+        existingScript.addEventListener("error", onError, { once: true });
+        return;
       }
-
-      const onLoad = () => {
-        if ((window as WindowWithGoogleMaps).google?.maps) {
-          resolve();
-          return;
-        }
-
-        googleMapsScriptPromise = null;
-        reject(new Error("Google Maps script loaded without maps namespace."));
-      };
-
-      const onError = () => {
-        googleMapsScriptPromise = null;
-        reject(new Error("Google Maps script failed to load."));
-      };
-
-      existingScript.addEventListener("load", onLoad, { once: true });
-      existingScript.addEventListener("error", onError, { once: true });
-      return;
     }
 
     const script = document.createElement("script");
@@ -127,6 +124,7 @@ export function BusMap({ bus, busLocation }: BusMapProps) {
   const markerRef = useRef<GoogleMarkerInstance | null>(null);
   const latestPositionRef = useRef<{ lat: number; lng: number }>({ lat: 17.506, lng: 78.382 });
   const [mapResolutionState, setMapResolutionState] = useState<MapResolutionState>("idle");
+  const [mapAttempt, setMapAttempt] = useState(0);
 
   const setup = getSetupStatus();
   const mapsKey = getPublicRuntimeEnv().NEXT_PUBLIC_GOOGLE_MAPS_API_KEY?.trim() ?? "";
@@ -229,7 +227,7 @@ export function BusMap({ bus, busLocation }: BusMapProps) {
         (window as WindowWithGoogleMaps).gm_authFailure = previousAuthFailure;
       }
     };
-  }, [bus.code, canAttemptLiveMap, mapsKey]);
+  }, [bus.code, canAttemptLiveMap, mapsKey, mapAttempt]);
 
   useEffect(() => {
     if (mapLoadState !== "ready") {
@@ -321,6 +319,18 @@ export function BusMap({ bus, busLocation }: BusMapProps) {
               Centered near {lat.toFixed(4)}, {lng.toFixed(4)}
             </Typography>
           </Stack>
+          {mapLoadState === "error" ? (
+            <Button
+              variant="outlined"
+              size="small"
+              onClick={() => {
+                setMapResolutionState("idle");
+                setMapAttempt((previous) => previous + 1);
+              }}
+            >
+              Retry map
+            </Button>
+          ) : null}
         </Stack>
       </Box>
     );
