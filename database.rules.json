@@ -1,0 +1,40 @@
+{
+  "rules": {
+    "presence": {
+      "$uid": {
+        ".read": "auth != null && auth.uid === $uid",
+        ".write": "auth != null && auth.uid === $uid"
+      }
+    },
+    "trackerCandidates": {
+      "$busId": {
+        "$uid": {
+          ".read": "auth != null && auth.uid === $uid",
+          ".write": "auth != null && auth.uid === $uid"
+        }
+      }
+    },
+    "trackerAssignments": {
+      "$busId": {
+        ".read": "auth != null",
+        ".write": false
+      }
+    },
+    "busLocations": {
+      "$busId": {
+        ".read": "auth != null",
+        ".write": false
+      }
+    },
+    "busHealth": {
+      "$busId": {
+        ".read": "auth != null",
+        ".write": false
+      }
+    },
+    "$other": {
+      ".read": false,
+      ".write": false
+    }
+  }
+}

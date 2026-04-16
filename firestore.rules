@@ -1,0 +1,56 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isAdmin() {
+      return isSignedIn() && request.auth.token.role == 'admin';
+    }
+
+    // Students can read only their own profile document. Writes are blocked by default.
+    match /students/{studentId} {
+      allow read: if isAdmin() || (isSignedIn() && resource.data.uid == request.auth.uid);
+      allow write: if false;
+    }
+
+    // Bus, route and stop canonical documents are readable by authenticated users.
+    // TODO: tighten read visibility by assigned bus and linked parent context via trusted backend.
+    match /buses/{busId} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
+    }
+
+    match /routes/{routeId} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
+    }
+
+    match /stops/{stopId} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
+    }
+
+    match /colleges/{collegeId} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
+    }
+
+    // Parent links are sensitive and should be accessed via app-controlled logic.
+    match /parentLinks/{parentLinkId} {
+      allow read: if isAdmin();
+      allow write: if isAdmin();
+    }
+
+    match /subscriptions/{subscriptionId} {
+      allow read: if isAdmin();
+      allow write: if isAdmin();
+    }
+
+    // Conservative default for all other collections.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

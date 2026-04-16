@@ -1,36 +1,48 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# BusPulse
 
-## Getting Started
+BusPulse is a Firebase-first MVP for college bus live tracking.
 
-First, run the development server:
+Firebase target project: buspulse-493407
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
-```
+## Core Architecture
+- Firestore: canonical entities (colleges, buses, routes, stops, students, parent links, subscriptions, policies)
+- Realtime Database: hot live-tracking layer (presence, candidates, assignments, bus-level derived state)
+- Viewer privacy: UI reads bus-level state only; contributor identities are never surfaced to viewers
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## Data Source Modes
+- live mode: enabled when Firebase env values are complete and project ID matches buspulse-493407
+- mock mode: automatic fallback when env is incomplete or mismatched
+- setup diagnostics are available in /settings
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Scripts
+- `npm run dev`: start local development server
+- `npm run lint`: run ESLint
+- `npm run typecheck`: run TypeScript checks
+- `npm run build`: production build
+- `npm run validate`: lint + typecheck + build
+- `npm run firebase:emulators`: start Firebase emulators (requires Firebase CLI)
+- `npm run firebase:rules:deploy`: deploy Firestore + Realtime Database rules
+- `npm run firebase:indexes:deploy`: deploy Firestore indexes
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## Local Setup
+1. Copy `.env.example` to `.env.local`.
+2. Fill in Firebase project values and Maps key placeholders.
+3. Enable Maps JavaScript API for your browser maps key.
+4. Enable Firebase Auth (Google), Firestore, and Realtime Database in your Firebase project.
+5. Run `npm install` and `npm run dev`.
 
-## Learn More
+Detailed setup steps are in `docs/SETUP.md`.
 
-To learn more about Next.js, take a look at the following resources:
+## Docs
+- `docs/PRD.md`
+- `docs/ARCHITECTURE.md`
+- `docs/DATA_MODEL.md`
+- `docs/WORKFLOWS.md`
+- `docs/SECURITY_PRIVACY.md`
+- `docs/SETUP.md`
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+## Notes
+- The MVP intentionally supports active-session contribution only.
+- No Google Fleet Engine.
+- Payments are stubbed via subscription entities for future integration.
+- One-active-session enforcement is documented and remains a server-side follow-up.
