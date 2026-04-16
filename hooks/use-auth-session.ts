@@ -32,7 +32,7 @@ export function useAuthSession() {
       if (nextUser?.email && !isAllowedEmail(nextUser.email)) {
         await signOutCurrentUser();
         setUser(null);
-        setError("Signed out: this email domain is not allowed for this college.");
+        setError("Signed out: this email account is not allowed for this college.");
         setIsLoading(false);
         return;
       }

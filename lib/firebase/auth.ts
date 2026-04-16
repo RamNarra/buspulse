@@ -85,17 +85,26 @@ export function isAllowedEmail(email: string | null | undefined): boolean {
     return false;
   }
 
-  const domains = getAllowedCollegeDomains();
-  if (domains.length === 0) {
+  const allowlist = getAllowedCollegeDomains()
+    .map((value) => value.trim().toLowerCase())
+    .filter(Boolean);
+
+  if (allowlist.length === 0) {
     return true;
   }
 
-  const domain = email.split("@")[1]?.toLowerCase();
+  const normalizedEmail = email.trim().toLowerCase();
+  if (allowlist.includes(normalizedEmail)) {
+    return true;
+  }
+
+  const domain = normalizedEmail.split("@")[1]?.toLowerCase();
   if (!domain) {
     return false;
   }
 
-  return domains.includes(domain);
+  const normalizedDomain = domain === "googlemail.com" ? "gmail.com" : domain;
+  return allowlist.includes(domain) || allowlist.includes(normalizedDomain);
 }
 
 export function getCurrentAuthUser(): User | null {
@@ -137,7 +146,7 @@ export async function signInWithGoogle(): Promise<AuthResult> {
       await signOut(auth);
       return {
         ok: false,
-        error: "This email domain is not allowed for this college account.",
+        error: "This email account is not allowed for this college.",
       };
     }
 
