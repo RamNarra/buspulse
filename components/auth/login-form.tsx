@@ -118,7 +118,7 @@ export function LoginForm() {
 
             {isLiveAuthReady && error ? (
               <Alert severity="warning" variant="outlined">
-                Sign-in is temporarily unavailable. Please try again.
+                {error}
               </Alert>
             ) : null}
           </Stack>
