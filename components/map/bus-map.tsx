@@ -117,6 +117,7 @@ export function BusMap({ bus, busLocation }: BusMapProps) {
   const latestPositionRef = useRef<{ lat: number; lng: number }>({ lat: 17.506, lng: 78.382 });
   const [mapResolutionState, setMapResolutionState] = useState<MapResolutionState>("idle");
   const [mapAttempt, setMapAttempt] = useState(0);
+  const [userLocation, setUserLocation] = useState<{ lat: number; lng: number } | null>(null);
 
   const setup = getSetupStatus();
   const mapsKey = getPublicRuntimeEnv().NEXT_PUBLIC_GOOGLE_MAPS_API_KEY?.trim() ?? "";
@@ -129,8 +130,26 @@ export function BusMap({ bus, busLocation }: BusMapProps) {
         ? "error"
         : "loading";
 
-  const lat = busLocation?.lat ?? 17.506;
-  const lng = busLocation?.lng ?? 78.382;
+  const lat = busLocation?.lat ?? userLocation?.lat ?? 17.506;
+  const lng = busLocation?.lng ?? userLocation?.lng ?? 78.382;
+
+  useEffect(() => {
+    // Attempt tracking user's initial location to show a relevant map area
+    if (typeof navigator !== "undefined" && "geolocation" in navigator && !userLocation && !busLocation) {
+      navigator.geolocation.getCurrentPosition(
+        (position) => {
+          setUserLocation({
+            lat: position.coords.latitude,
+            lng: position.coords.longitude,
+          });
+        },
+        () => {
+          // Ignore location errors
+        },
+        { timeout: 8000 }
+      );
+    }
+  }, [userLocation, busLocation]);
 
   useEffect(() => {
     latestPositionRef.current = { lat, lng };
@@ -181,7 +200,8 @@ export function BusMap({ bus, busLocation }: BusMapProps) {
 
         const map = new mapsApi.Map(mapCanvasRef.current, {
           center: initialPosition,
-          zoom: 14,
+          zoom: 15,
+          mapTypeId: "hybrid",
           disableDefaultUI: true,
           zoomControl: true,
           fullscreenControl: true,
