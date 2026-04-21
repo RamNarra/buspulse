@@ -19,11 +19,13 @@ type MapResolutionState = "idle" | "ready" | "error";
 
 type GoogleMapInstance = {
   setCenter: (position: { lat: number; lng: number }) => void;
+  fitBounds: (bounds: unknown) => void;
 };
 
 type GoogleMarkerInstance = {
   setPosition: (position: { lat: number; lng: number }) => void;
   setMap?: (map: GoogleMapInstance | null) => void;
+  setIcon?: (icon: Record<string, unknown> | string) => void;
 };
 
 type WindowWithGoogleMaps = Window & {
@@ -31,6 +33,8 @@ type WindowWithGoogleMaps = Window & {
     maps?: {
       Map: new (element: HTMLElement, options: Record<string, unknown>) => GoogleMapInstance;
       Marker: new (options: Record<string, unknown>) => GoogleMarkerInstance;
+      LatLngBounds: new () => unknown;
+      SymbolPath: { CIRCLE: number };
     };
   };
   gm_authFailure?: (() => void) | undefined;
@@ -71,7 +75,6 @@ function loadGoogleMapsScript(apiKey: string): Promise<void> {
         resolve();
         return;
       } else {
-        // Still loading, hook into the existing callback or add listeners
         const prevCallback = globalWindow.__buspulse_google_maps_callback;
         globalWindow.__buspulse_google_maps_callback = () => {
           if (prevCallback) prevCallback();
@@ -114,10 +117,13 @@ export function BusMap({ bus, busLocation }: BusMapProps) {
   const mapCanvasRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<GoogleMapInstance | null>(null);
   const markerRef = useRef<GoogleMarkerInstance | null>(null);
+  const userMarkerRef = useRef<GoogleMarkerInstance | null>(null);
   const latestPositionRef = useRef<{ lat: number; lng: number }>({ lat: 17.506, lng: 78.382 });
+  
   const [mapResolutionState, setMapResolutionState] = useState<MapResolutionState>("idle");
   const [mapAttempt, setMapAttempt] = useState(0);
   const [userLocation, setUserLocation] = useState<{ lat: number; lng: number } | null>(null);
+  const hasCenteredOnUserRef = useRef(false);
 
   const setup = getSetupStatus();
   const mapsKey = getPublicRuntimeEnv().NEXT_PUBLIC_GOOGLE_MAPS_API_KEY?.trim() ?? "";
@@ -130,65 +136,60 @@ export function BusMap({ bus, busLocation }: BusMapProps) {
         ? "error"
         : "loading";
 
-  const lat = busLocation?.lat ?? userLocation?.lat ?? 17.506;
-  const lng = busLocation?.lng ?? userLocation?.lng ?? 78.382;
+  const busLat = busLocation?.lat ?? 17.506;
+  const busLng = busLocation?.lng ?? 78.382;
 
   useEffect(() => {
-    // Attempt tracking user's initial location to show a relevant map area
-    if (typeof navigator !== "undefined" && "geolocation" in navigator && !userLocation && !busLocation) {
-      navigator.geolocation.getCurrentPosition(
-        (position) => {
-          setUserLocation({
-            lat: position.coords.latitude,
-            lng: position.coords.longitude,
-          });
-        },
-        () => {
-          // Ignore location errors
-        },
-        { timeout: 8000 }
-      );
+    if (typeof navigator === "undefined" || !("geolocation" in navigator)) {
+      return;
     }
-  }, [userLocation, busLocation]);
+    const watchId = navigator.geolocation.watchPosition(
+      (position) => {
+        setUserLocation({
+          lat: position.coords.latitude,
+          lng: position.coords.longitude,
+        });
+      },
+      () => {},
+      { enableHighAccuracy: true, timeout: 15000, maximumAge: 10000 }
+    );
+    return () => navigator.geolocation.clearWatch(watchId);
+  }, []);
 
   useEffect(() => {
-    latestPositionRef.current = { lat, lng };
-  }, [lat, lng]);
+    latestPositionRef.current = { lat: busLat, lng: busLng };
+  }, [busLat, busLng]);
 
   useEffect(() => {
     if (!canAttemptLiveMap) {
       markerRef.current?.setMap?.(null);
       markerRef.current = null;
+      userMarkerRef.current?.setMap?.(null);
+      userMarkerRef.current = null;
       mapRef.current = null;
       return;
     }
 
     let cancelled = false;
-
     const globalWindow = window as WindowWithGoogleMaps;
     const previousAuthFailure = globalWindow.gm_authFailure;
+    
     const onAuthFailure = () => {
-      if (!cancelled) {
-        setMapResolutionState("error");
-      }
+      if (!cancelled) setMapResolutionState("error");
       previousAuthFailure?.();
     };
 
     globalWindow.gm_authFailure = onAuthFailure;
 
     const timeoutId = window.setTimeout(() => {
-      if (!cancelled) {
-        setMapResolutionState("error");
-      }
+      if (!cancelled) setMapResolutionState("error");
     }, 12_000);
 
     const initialPosition = latestPositionRef.current;
 
     void loadGoogleMapsScript(mapsKey)
       .then(() => {
-        if (cancelled) {
-          return;
-        }
+        if (cancelled) return;
 
         const mapsApi = globalWindow.google?.maps;
         if (!mapsApi || !mapCanvasRef.current) {
@@ -197,9 +198,10 @@ export function BusMap({ bus, busLocation }: BusMapProps) {
         }
 
         markerRef.current?.setMap?.(null);
+        userMarkerRef.current?.setMap?.(null);
 
         const map = new mapsApi.Map(mapCanvasRef.current, {
-          center: initialPosition,
+          center: userLocation || initialPosition,
           zoom: 15,
           mapTypeId: "hybrid",
           disableDefaultUI: true,
@@ -212,20 +214,34 @@ export function BusMap({ bus, busLocation }: BusMapProps) {
           backgroundColor: "#dce5f4",
         });
 
-        const marker = new mapsApi.Marker({
+        const busMarker = new mapsApi.Marker({
           map,
           position: initialPosition,
           title: bus.code,
         });
 
+        const userMarker = new mapsApi.Marker({
+          map,
+          position: userLocation || initialPosition,
+          title: "Your Location",
+          icon: {
+            path: mapsApi.SymbolPath?.CIRCLE || 0,
+            scale: 8,
+            fillColor: "#4285F4",
+            fillOpacity: 1,
+            strokeColor: "#ffffff",
+            strokeWeight: 2,
+          }
+        });
+
         mapRef.current = map;
-        markerRef.current = marker;
+        markerRef.current = busMarker;
+        userMarkerRef.current = userMarker;
+        (globalWindow as any)._test_mapCenter = map;
         setMapResolutionState("ready");
       })
       .catch(() => {
-        if (!cancelled) {
-          setMapResolutionState("error");
-        }
+        if (!cancelled) setMapResolutionState("error");
       })
       .finally(() => {
         window.clearTimeout(timeoutId);
@@ -234,28 +250,34 @@ export function BusMap({ bus, busLocation }: BusMapProps) {
     return () => {
       cancelled = true;
       window.clearTimeout(timeoutId);
-
       if ((window as WindowWithGoogleMaps).gm_authFailure === onAuthFailure) {
         (window as WindowWithGoogleMaps).gm_authFailure = previousAuthFailure;
       }
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [bus.code, canAttemptLiveMap, mapsKey, mapAttempt]);
 
   useEffect(() => {
-    if (mapLoadState !== "ready") {
-      return;
+    if (mapLoadState !== "ready") return;
+
+    if (userLocation) {
+        userMarkerRef.current?.setPosition(userLocation);
+
+        if (!hasCenteredOnUserRef.current && userLocation.lat !== 0) {
+            mapRef.current?.setCenter(userLocation);
+            hasCenteredOnUserRef.current = true;
+        }
     }
 
-    const nextPosition = { lat, lng };
-
-    mapRef.current?.setCenter(nextPosition);
-    markerRef.current?.setPosition(nextPosition);
-  }, [lat, lng, mapLoadState]);
+    markerRef.current?.setPosition({ lat: busLat, lng: busLng });
+  }, [busLat, busLng, userLocation, mapLoadState]);
 
   useEffect(() => {
     return () => {
       markerRef.current?.setMap?.(null);
       markerRef.current = null;
+      userMarkerRef.current?.setMap?.(null);
+      userMarkerRef.current = null;
       mapRef.current = null;
     };
   }, []);
@@ -302,65 +324,135 @@ export function BusMap({ bus, busLocation }: BusMapProps) {
         }}
         aria-label={`${bus.code} live map`}
       />
+
       {mapLoadState !== "ready" && (
         <Box
           sx={{
             position: "absolute",
             inset: 0,
-            background:
-              "radial-gradient(circle at 14% 16%, rgba(18,90,212,.22), transparent 30%), radial-gradient(circle at 86% 11%, rgba(0,163,122,.20), transparent 34%), linear-gradient(135deg, #dce7f8 0%, #f4f8ff 45%, #e8f5f2 100%)",
-            zIndex: 10,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            p: 4,
+            textAlign: "center",
           }}
         >
-          <Box
-            sx={{
-              position: "absolute",
-              inset: 0,
-              backgroundImage:
-                "linear-gradient(transparent 96%, rgba(18,90,212,.08) 96%), linear-gradient(90deg, transparent 96%, rgba(18,90,212,.08) 96%)",
-              backgroundSize: "36px 36px",
-            }}
-          />
-          <Stack
-            spacing={1.5}
-            sx={{
-              position: "absolute",
-              inset: 0,
-              alignItems: "center",
-              justifyContent: "center",
-            }}
-          >
-            {mapLoadState === "loading" ? (
-              <CircularProgress size={30} />
-            ) : (
-              <MapRoundedIcon color="primary" sx={{ fontSize: 34 }} />
-            )}
-            <Typography variant="h6">{fallbackTitle}</Typography>
-            <Typography variant="body2" color="text.secondary" align="center" sx={{ px: 4 }}>
-              {fallbackSubtitle}
-            </Typography>
-            <Stack direction="row" spacing={1} sx={{ alignItems: "center" }}>
-              <Chip size="small" color="primary" label={fallbackBadge} />
-              <Chip size="small" icon={<SyncRoundedIcon />} label={bus.code} />
-            </Stack>
-            <Stack direction="row" spacing={0.6} sx={{ alignItems: "center" }}>
-              <RoomRoundedIcon color="primary" sx={{ fontSize: 18 }} />
-              <Typography variant="caption" color="text.secondary">
-                Centered near {lat.toFixed(4)}, {lng.toFixed(4)}
+          <Stack sx={{ alignItems: "center" }} spacing={2.5}>
+            <Box
+              sx={{
+                width: 64,
+                height: 64,
+                borderRadius: "50%",
+                backgroundColor: "background.paper",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                boxShadow: 2,
+                mb: 1,
+              }}
+            >
+              {mapLoadState === "loading" ? (
+                <CircularProgress size={28} thickness={4} />
+              ) : (
+                <MapRoundedIcon color={mapLoadState === "error" ? "error" : "primary"} sx={{ fontSize: 32 }} />
+              )}
+            </Box>
+            <Chip
+              label={fallbackBadge}
+              size="small"
+              color={mapLoadState === "error" ? "error" : "primary"}
+              variant="outlined"
+              sx={{ fontWeight: 600, px: 1 }}
+            />
+            <Box>
+              <Typography variant="h6" sx={{ fontWeight: "700" }} color="text.primary" gutterBottom>
+                {fallbackTitle}
               </Typography>
-            </Stack>
-            {mapLoadState === "error" ? (
+              <Typography variant="body2" color="text.secondary" sx={{ maxWidth: 280, mx: "auto" }}>
+                {fallbackSubtitle}
+              </Typography>
+            </Box>
+            {mapLoadState === "error" && canAttemptLiveMap && (
               <Button
-                variant="outlined"
-                size="small"
-                onClick={() => {
-                  setMapResolutionState("idle");
-                  setMapAttempt((previous) => previous + 1);
+                variant="contained"
+                startIcon={<SyncRoundedIcon />}
+                onClick={() => setMapAttempt((prev) => prev + 1)}
+                sx={{
+                  mt: 2,
+                  px: 3,
+                  py: 1,
+                  borderRadius: 2,
+                  textTransform: "none",
+                  fontWeight: 600,
+                  boxShadow: "none",
                 }}
               >
-                Retry map
+                Try Again
               </Button>
-            ) : null}
+            )}
+          </Stack>
+        </Box>
+      )}
+
+      {mapLoadState === "ready" && (
+        <Box
+          sx={{
+            position: "absolute",
+            bottom: 24,
+            left: 24,
+            right: 24,
+            display: "flex",
+            justifyContent: "center",
+            pointerEvents: "none",
+          }}
+        >
+          <Stack
+            direction="row"
+            spacing={1.5}
+            sx={{
+              alignItems: "center",
+              backgroundColor: "background.paper",
+              px: { xs: 2.5, sm: 3 },
+              py: { xs: 1.5, sm: 1.75 },
+              borderRadius: 3,
+              boxShadow: "0 8px 32px rgba(0,0,0,0.12)",
+              pointerEvents: "auto",
+              border: "1px solid",
+              borderColor: "divider",
+            }}
+          >
+            <Box
+              sx={{
+                width: 36,
+                height: 36,
+                borderRadius: "50%",
+                backgroundColor: "primary.main",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                position: "relative",
+              }}
+            >
+              <RoomRoundedIcon sx={{ color: "white", fontSize: 20 }} />
+            </Box>
+            <Box sx={{ pr: 1 }}>
+              <Typography variant="body1" color="text.primary" sx={{ fontWeight: "700", lineHeight: 1.2, mb: 0.5 }}>
+                {bus.code}
+              </Typography>
+              <Typography variant="caption" color="success.main" sx={{ fontWeight: "600", display: "flex", alignItems: "center", gap: 0.5 }}>
+                <Box
+                  component="span"
+                  sx={{
+                    width: 6,
+                    height: 6,
+                    borderRadius: "50%",
+                    backgroundColor: "success.main",
+                    display: "inline-block",
+                  }}
+                />
+                LIVE TRACKING
+              </Typography>
+            </Box>
           </Stack>
         </Box>
       )}
