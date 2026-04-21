@@ -54,6 +54,10 @@ function loadGoogleMapsScript(apiKey: string): Promise<void> {
   }
 
   googleMapsScriptPromise = new Promise<void>((resolve, reject) => {
+    const globalWindow = window as WindowWithGoogleMaps & {
+      __buspulse_google_maps_callback?: () => void;
+    };
+
     const existingScript = document.getElementById(GOOGLE_MAPS_SCRIPT_ID) as
       | HTMLScriptElement
       | null;
@@ -67,22 +71,16 @@ function loadGoogleMapsScript(apiKey: string): Promise<void> {
         resolve();
         return;
       } else {
-        const onLoad = () => {
-          if ((window as WindowWithGoogleMaps).google?.maps) {
-            resolve();
-            return;
-          }
-
-          googleMapsScriptPromise = null;
-          reject(new Error("Google Maps script loaded without maps namespace."));
+        // Still loading, hook into the existing callback or add listeners
+        const prevCallback = globalWindow.__buspulse_google_maps_callback;
+        globalWindow.__buspulse_google_maps_callback = () => {
+          if (prevCallback) prevCallback();
+          resolve();
         };
-
         const onError = () => {
           googleMapsScriptPromise = null;
           reject(new Error("Google Maps script failed to load."));
         };
-
-        existingScript.addEventListener("load", onLoad, { once: true });
         existingScript.addEventListener("error", onError, { once: true });
         return;
       }
@@ -92,19 +90,13 @@ function loadGoogleMapsScript(apiKey: string): Promise<void> {
     script.id = GOOGLE_MAPS_SCRIPT_ID;
     script.async = true;
     script.defer = true;
-    script.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(apiKey)}&v=weekly&loading=async`;
 
-    script.onload = () => {
+    globalWindow.__buspulse_google_maps_callback = () => {
       script.dataset.buspulseStatus = "loaded";
-
-      if ((window as WindowWithGoogleMaps).google?.maps) {
-        resolve();
-        return;
-      }
-
-      googleMapsScriptPromise = null;
-      reject(new Error("Google Maps script loaded without maps namespace."));
+      resolve();
     };
+
+    script.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(apiKey)}&v=weekly&callback=__buspulse_google_maps_callback`;
 
     script.onerror = () => {
       script.dataset.buspulseStatus = "error";
@@ -248,105 +240,110 @@ export function BusMap({ bus, busLocation }: BusMapProps) {
     };
   }, []);
 
-  if (mapLoadState !== "ready") {
-    const fallbackTitle =
-      mapLoadState === "loading"
-        ? "Loading live map"
-        : mapLoadState === "error"
-          ? "Map temporarily unavailable"
-          : "Map preview mode";
+  const fallbackTitle =
+    mapLoadState === "loading"
+      ? "Loading live map"
+      : mapLoadState === "error"
+        ? "Map temporarily unavailable"
+        : "Map preview mode";
 
-    const fallbackSubtitle =
-      mapLoadState === "loading"
-        ? "Preparing map tiles for your route."
-        : mapLoadState === "error"
-          ? "Live tiles could not be loaded. Tracking details remain active below."
-          : "Live tiles are not configured. Tracking details remain active below.";
+  const fallbackSubtitle =
+    mapLoadState === "loading"
+      ? "Preparing map tiles for your route."
+      : mapLoadState === "error"
+        ? "Live tiles could not be loaded. Tracking details remain active below."
+        : "Live tiles are not configured. Tracking details remain active below.";
 
-    const fallbackBadge =
-      mapLoadState === "loading"
-        ? "Connecting"
-        : mapLoadState === "error"
-          ? "Fallback"
-          : "Preview";
-
-    return (
-      <Box
-        sx={{
-          height: "100%",
-          width: "100%",
-          position: "relative",
-          borderRadius: { xs: 0, md: 3 },
-          overflow: "hidden",
-          background:
-            "radial-gradient(circle at 14% 16%, rgba(18,90,212,.22), transparent 30%), radial-gradient(circle at 86% 11%, rgba(0,163,122,.20), transparent 34%), linear-gradient(135deg, #dce7f8 0%, #f4f8ff 45%, #e8f5f2 100%)",
-        }}
-      >
-        <Box
-          sx={{
-            position: "absolute",
-            inset: 0,
-            backgroundImage:
-              "linear-gradient(transparent 96%, rgba(18,90,212,.08) 96%), linear-gradient(90deg, transparent 96%, rgba(18,90,212,.08) 96%)",
-            backgroundSize: "36px 36px",
-          }}
-        />
-        <Stack
-          spacing={1.5}
-          sx={{
-            position: "absolute",
-            inset: 0,
-            alignItems: "center",
-            justifyContent: "center",
-          }}
-        >
-          {mapLoadState === "loading" ? (
-            <CircularProgress size={30} />
-          ) : (
-            <MapRoundedIcon color="primary" sx={{ fontSize: 34 }} />
-          )}
-          <Typography variant="h6">{fallbackTitle}</Typography>
-          <Typography variant="body2" color="text.secondary" align="center" sx={{ px: 4 }}>
-            {fallbackSubtitle}
-          </Typography>
-          <Stack direction="row" spacing={1} sx={{ alignItems: "center" }}>
-            <Chip size="small" color="primary" label={fallbackBadge} />
-            <Chip size="small" icon={<SyncRoundedIcon />} label={bus.code} />
-          </Stack>
-          <Stack direction="row" spacing={0.6} sx={{ alignItems: "center" }}>
-            <RoomRoundedIcon color="primary" sx={{ fontSize: 18 }} />
-            <Typography variant="caption" color="text.secondary">
-              Centered near {lat.toFixed(4)}, {lng.toFixed(4)}
-            </Typography>
-          </Stack>
-          {mapLoadState === "error" ? (
-            <Button
-              variant="outlined"
-              size="small"
-              onClick={() => {
-                setMapResolutionState("idle");
-                setMapAttempt((previous) => previous + 1);
-              }}
-            >
-              Retry map
-            </Button>
-          ) : null}
-        </Stack>
-      </Box>
-    );
-  }
+  const fallbackBadge =
+    mapLoadState === "loading"
+      ? "Connecting"
+      : mapLoadState === "error"
+        ? "Fallback"
+        : "Preview";
 
   return (
     <Box
       sx={{
         height: "100%",
         width: "100%",
+        position: "relative",
         borderRadius: { xs: 0, md: 3 },
         overflow: "hidden",
         backgroundColor: "#dce5f4",
       }}
     >
-      <Box ref={mapCanvasRef} sx={{ width: "100%", height: "100%" }} aria-label={`${bus.code} live map`} />
+      <Box
+        ref={mapCanvasRef}
+        sx={{
+          width: "100%",
+          height: "100%",
+          opacity: mapLoadState === "ready" ? 1 : 0,
+          pointerEvents: mapLoadState === "ready" ? "auto" : "none",
+        }}
+        aria-label={`${bus.code} live map`}
+      />
+      {mapLoadState !== "ready" && (
+        <Box
+          sx={{
+            position: "absolute",
+            inset: 0,
+            background:
+              "radial-gradient(circle at 14% 16%, rgba(18,90,212,.22), transparent 30%), radial-gradient(circle at 86% 11%, rgba(0,163,122,.20), transparent 34%), linear-gradient(135deg, #dce7f8 0%, #f4f8ff 45%, #e8f5f2 100%)",
+            zIndex: 10,
+          }}
+        >
+          <Box
+            sx={{
+              position: "absolute",
+              inset: 0,
+              backgroundImage:
+                "linear-gradient(transparent 96%, rgba(18,90,212,.08) 96%), linear-gradient(90deg, transparent 96%, rgba(18,90,212,.08) 96%)",
+              backgroundSize: "36px 36px",
+            }}
+          />
+          <Stack
+            spacing={1.5}
+            sx={{
+              position: "absolute",
+              inset: 0,
+              alignItems: "center",
+              justifyContent: "center",
+            }}
+          >
+            {mapLoadState === "loading" ? (
+              <CircularProgress size={30} />
+            ) : (
+              <MapRoundedIcon color="primary" sx={{ fontSize: 34 }} />
+            )}
+            <Typography variant="h6">{fallbackTitle}</Typography>
+            <Typography variant="body2" color="text.secondary" align="center" sx={{ px: 4 }}>
+              {fallbackSubtitle}
+            </Typography>
+            <Stack direction="row" spacing={1} sx={{ alignItems: "center" }}>
+              <Chip size="small" color="primary" label={fallbackBadge} />
+              <Chip size="small" icon={<SyncRoundedIcon />} label={bus.code} />
+            </Stack>
+            <Stack direction="row" spacing={0.6} sx={{ alignItems: "center" }}>
+              <RoomRoundedIcon color="primary" sx={{ fontSize: 18 }} />
+              <Typography variant="caption" color="text.secondary">
+                Centered near {lat.toFixed(4)}, {lng.toFixed(4)}
+              </Typography>
+            </Stack>
+            {mapLoadState === "error" ? (
+              <Button
+                variant="outlined"
+                size="small"
+                onClick={() => {
+                  setMapResolutionState("idle");
+                  setMapAttempt((previous) => previous + 1);
+                }}
+              >
+                Retry map
+              </Button>
+            ) : null}
+          </Stack>
+        </Box>
+      )}
     </Box>
   );
 }
