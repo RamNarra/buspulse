@@ -276,15 +276,66 @@ export function subscribeToDerivedBusState(
   const unsubscribeLocation = onValue(
     ref(db, realtimePaths.busLocations(busId)),
     (snapshot) => {
+      // Only use fallback location if we aren't already deriving from candidates
       if (!snapshot.exists()) {
-        location = null;
+        if (!location || location.confidence === 0) location = null;
       } else {
         const parsed = busLocationSchema.safeParse(snapshot.val());
-        location = parsed.success ? parsed.data : null;
+        if (parsed.success && (!location || location.confidence === 0)) {
+          location = parsed.data;
+        }
       }
-
       emit();
     },
+  );
+
+  const unsubscribeCandidates = onValue(
+    ref(db, `trackerCandidates/${busId}`),
+    (snapshot) => {
+      if (snapshot.exists()) {
+        const candidates = snapshot.val();
+        let totalLat = 0;
+        let totalLng = 0;
+        let count = 0;
+        let latestUpdate = 0;
+
+        for (const uid in candidates) {
+          const candidate = candidates[uid];
+          // Filter out stale candidates (> 30 seconds old)
+          if (
+            candidate.lat && 
+            candidate.lng && 
+            candidate.updatedAt && 
+            (Date.now() - candidate.updatedAt < 30000)
+          ) {
+            totalLat += candidate.lat;
+            totalLng += candidate.lng;
+            count++;
+            if (candidate.updatedAt > latestUpdate) latestUpdate = candidate.updatedAt;
+          }
+        }
+
+        if (count > 0) {
+          location = {
+            lat: totalLat / count,
+            lng: totalLng / count,
+            accuracy: 10,
+            sourceCount: count,
+            routeMatchScore: 1,
+            speed: undefined,
+            heading: undefined,
+            confidence: count, // Confidence represents the number of active trackers!
+            updatedAt: latestUpdate,
+          };
+        } else {
+          location = { ...location, confidence: 0 } as BusLocation; // Mark as fallback mode
+        }
+      } else {
+        location = { ...location, confidence: 0 } as BusLocation;
+      }
+      
+      emit();
+    }
   );
 
   const unsubscribeHealth = onValue(ref(db, realtimePaths.busHealth(busId)), (snapshot) => {
@@ -300,6 +351,7 @@ export function subscribeToDerivedBusState(
 
   return () => {
     unsubscribeLocation();
+    unsubscribeCandidates();
     unsubscribeHealth();
   };
 }

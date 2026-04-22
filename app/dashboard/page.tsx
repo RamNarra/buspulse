@@ -8,6 +8,7 @@ import { BusMap } from "@/components/map/bus-map";
 import { useAuthSession } from "@/hooks/use-auth-session";
 import { useCurrentBusState } from "@/hooks/use-current-bus-state";
 import { useCurrentStudentProfile } from "@/hooks/use-current-student-profile";
+import { useCrowdsourceTracking } from "@/hooks/use-crowdsource-tracking";
 import { mockBus, mockStudent } from "@/lib/mock/fixtures";
 import { useAppStore } from "@/lib/store/app-store";
 
@@ -45,6 +46,9 @@ export default function DashboardPage() {
   const { isMenuOpen, toggleMenu, setMenuOpen } = useAppStore();
   const { student, error: studentError, isLoading: studentLoading } =
     useCurrentStudentProfile(user?.uid);
+
+  // Initialize the crowdsourced fleet tracking system
+  const { trackingState } = useCrowdsourceTracking();
 
   useEffect(() => {
     if (mode === "live" && !authLoading && !user) {
@@ -164,6 +168,13 @@ export default function DashboardPage() {
             <p className="text-sm text-slate-700 font-medium">
               {etaSummary}
             </p>
+
+            <div className="flex items-center gap-2">
+              <span className={`w-2 h-2 rounded-full ${trackingState === "BOARDED" ? "bg-blue-500 animate-pulse" : trackingState === "WAITING" ? "bg-amber-500" : "bg-slate-300"}`} />
+              <p className="text-xs font-bold text-slate-600 uppercase tracking-wide">
+                {trackingState === "BOARDED" ? "Boarded (GPS Active)" : trackingState === "WAITING" ? "Waiting for Bus" : "Locating..."}
+              </p>
+            </div>
 
             <p className="text-xs text-slate-500">
               {minutesAgo(busState.location?.updatedAt)}

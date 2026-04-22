@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useRef } from "react";
 import { APIProvider, Map, AdvancedMarker, useMap } from "@vis.gl/react-google-maps";
-import { Map as MapIcon, MapPin } from "lucide-react";
+import { Map as MapIcon, MapPin, Bus as BusIcon } from "lucide-react";
 
 import { getPublicRuntimeEnv, getSetupStatus } from "@/lib/config/env";
 import type { Bus, BusLocation } from "@/types/models";
@@ -103,9 +103,10 @@ export function BusMap({ bus, busLocation }: BusMapProps) {
           <AdvancedMarker 
             position={{ lat: busLat, lng: busLng }} 
             title={bus.code}
+            zIndex={50}
           >
-            <div className="bg-blue-600 text-white rounded-full p-2 shadow-lg border-2 border-white">
-              <MapPin className="w-5 h-5" />
+            <div className="bg-amber-400 text-slate-900 rounded-xl p-2 shadow-xl border-2 border-white">
+              <BusIcon className="w-6 h-6" />
             </div>
           </AdvancedMarker>
 
