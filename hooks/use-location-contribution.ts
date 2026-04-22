@@ -3,7 +3,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { getDataSourceMode } from "@/lib/config/data-source";
-import { writeLocationContribution, writePresenceHeartbeat } from "@/lib/firebase/realtime";
+import { writePresenceHeartbeat } from "@/lib/firebase/realtime";
+import { publishDriverLocation } from "@/app/actions/driver";
 
 type UseLocationContributionOptions = {
   uid: string;
@@ -57,7 +58,7 @@ export function useLocationContribution({
         setPermissionState("granted");
         setLastUpdateAt(Date.now());
 
-        void writeLocationContribution({
+        const candidate = {
           uid,
           busId,
           lat: position.coords.latitude,
@@ -65,10 +66,14 @@ export function useLocationContribution({
           heading: position.coords.heading ?? undefined,
           speed: position.coords.speed ?? undefined,
           accuracy: position.coords.accuracy,
-          routeMatchScore: 0.7,
-        }).then((result) => {
+          routeMatchScore: 0.9,
+          submittedAt: Date.now(),
+          source: "gps" as const,
+        };
+
+        void publishDriverLocation(busId, candidate).then((result: { ok: boolean; error?: string }) => {
           if (!result.ok) {
-            setError(result.error);
+            setError(result.error ?? "Unknown error");
           }
         });
       },

@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test } from '@playwright/test';
 
 test.use({
   geolocation: { latitude: 37.7749, longitude: -122.4194 },
@@ -14,7 +14,11 @@ test('map centers on user location', async ({ page }) => {
   await page.waitForTimeout(4000);
 
   const result = await page.evaluate(() => {
-    return window._test_mapCenter ? { lat: window._test_mapCenter.lat(), lng: window._test_mapCenter.lng() } : "No map center found";
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const w = window as any;
+    if (!w._test_mapCenter) return "No map center found";
+    const center = w._test_mapCenter.getCenter();
+    return { lat: center.lat(), lng: center.lng() };
   });
   console.log("Map center from evaluate:", result);
   

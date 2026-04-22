@@ -1,19 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import ArrowBackRoundedIcon from "@mui/icons-material/ArrowBackRounded";
-import LogoutRoundedIcon from "@mui/icons-material/LogoutRounded";
-import {
-  Box,
-  Button,
-  Chip,
-  Container,
-  List,
-  ListItem,
-  Paper,
-  Stack,
-  Typography,
-} from "@mui/material";
+import { ArrowLeft, LogOut } from "lucide-react";
 
 import { useAuthSession } from "@/hooks/use-auth-session";
 import { useCurrentStudentProfile } from "@/hooks/use-current-student-profile";
@@ -29,17 +17,19 @@ function StatusRow({
   value: string;
   tone?: "default" | "success" | "warning";
 }) {
+  const badgeClasses = {
+    default: "bg-gray-100 text-gray-700",
+    success: "bg-green-100 text-green-700",
+    warning: "bg-yellow-100 text-yellow-800",
+  }[tone];
+
   return (
-    <ListItem disableGutters sx={{ py: 0.75, justifyContent: "space-between" }}>
-      <Typography variant="body2" sx={{ fontWeight: 500 }}>
-        {label}
-      </Typography>
-      <Chip
-        size="small"
-        color={tone === "success" ? "success" : tone === "warning" ? "warning" : "default"}
-        label={value}
-      />
-    </ListItem>
+    <div className="flex items-center justify-between py-2 border-b border-gray-100 last:border-0">
+      <span className="text-sm font-medium text-gray-900">{label}</span>
+      <span className={`px-2.5 py-0.5 rounded-full text-xs font-semibold ${badgeClasses}`}>
+        {value}
+      </span>
+    </div>
   );
 }
 
@@ -64,89 +54,71 @@ export default function SettingsPage() {
   }
 
   return (
-    <Box sx={{ minHeight: "100dvh", py: { xs: 2, sm: 4 } }}>
-      <Container maxWidth="md">
-        <Stack spacing={2.5}>
-          <Stack direction="row" spacing={1} sx={{ alignItems: "center" }}>
-            <Button
-              component={Link}
-              href="/dashboard"
-              startIcon={<ArrowBackRoundedIcon />}
-              sx={{ borderRadius: 999 }}
+    <div className="min-h-[100dvh] bg-slate-50 py-8 px-4 sm:py-12">
+      <div className="max-w-3xl mx-auto space-y-6">
+        <div className="flex items-center gap-3">
+          <Link
+            href="/dashboard"
+            className="flex items-center gap-2 text-sm font-medium text-slate-600 hover:text-slate-900 transition-colors bg-white hover:bg-slate-100 px-4 py-2 rounded-full shadow-sm"
+          >
+            <ArrowLeft className="w-4 h-4" />
+            Back
+          </Link>
+          <h1 className="text-2xl font-bold text-slate-900">Settings</h1>
+        </div>
+
+        <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+          <h2 className="text-lg font-semibold text-slate-900 mb-2">Account</h2>
+          <p className="text-sm text-slate-600">{user?.email ?? "Preview mode"}</p>
+          <p className="text-sm text-slate-600 mt-1">Assigned bus: {effectiveStudent.busId}</p>
+          {user ? (
+            <button
+              onClick={() => void signOut()}
+              className="mt-6 flex items-center gap-2 px-5 py-2.5 bg-red-50 text-red-600 hover:bg-red-100 rounded-full text-sm font-semibold transition-colors"
             >
-              Back
-            </Button>
-            <Typography variant="h5" sx={{ fontWeight: 700 }}>
-              Settings
-            </Typography>
-          </Stack>
+              <LogOut className="w-4 h-4" />
+              Sign out
+            </button>
+          ) : null}
+        </div>
 
-          <Paper sx={{ p: 2.5, borderRadius: 3, border: "1px solid rgba(15, 23, 42, 0.08)" }}>
-            <Typography variant="h6" sx={{ mb: 1 }}>
-              Account
-            </Typography>
-            <Typography variant="body2" color="text.secondary">
-              {user?.email ?? "Preview mode"}
-            </Typography>
-            <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
-              Assigned bus: {effectiveStudent.busId}
-            </Typography>
-            {user ? (
-              <Button
-                sx={{ mt: 2, borderRadius: 999 }}
-                startIcon={<LogoutRoundedIcon />}
-                onClick={() => {
-                  void signOut();
-                }}
-              >
-                Sign out
-              </Button>
-            ) : null}
-          </Paper>
+        <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+          <h2 className="text-lg font-semibold text-slate-900 mb-4">App status</h2>
+          <div className="flex flex-col">
+            <StatusRow
+              label="Data mode"
+              value={mode === "live" ? "Live" : "Preview"}
+              tone={mode === "live" ? "success" : "default"}
+            />
+            <StatusRow
+              label="Map experience"
+              value={setup.mapsReady ? "Ready" : "Fallback"}
+              tone={setup.mapsReady ? "success" : "warning"}
+            />
+            <StatusRow
+              label="Authentication"
+              value={setup.firebaseReady ? "Configured" : "Needs setup"}
+              tone={setup.firebaseReady ? "success" : "warning"}
+            />
+          </div>
+        </div>
 
-          <Paper sx={{ p: 2.5, borderRadius: 3, border: "1px solid rgba(15, 23, 42, 0.08)" }}>
-            <Typography variant="h6" sx={{ mb: 1 }}>
-              App status
-            </Typography>
-            <List disablePadding>
-              <StatusRow
-                label="Data mode"
-                value={mode === "live" ? "Live" : "Preview"}
-                tone={mode === "live" ? "success" : "default"}
-              />
-              <StatusRow
-                label="Map experience"
-                value={setup.mapsReady ? "Ready" : "Fallback"}
-                tone={setup.mapsReady ? "success" : "warning"}
-              />
-              <StatusRow
-                label="Authentication"
-                value={setup.firebaseReady ? "Configured" : "Needs setup"}
-                tone={setup.firebaseReady ? "success" : "warning"}
-              />
-            </List>
-          </Paper>
-
-          <Paper sx={{ p: 2.5, borderRadius: 3, border: "1px solid rgba(15, 23, 42, 0.08)" }}>
-            <Typography variant="h6" sx={{ mb: 1 }}>
-              Setup help
-            </Typography>
-            {setupTips.length === 0 ? (
-              <Typography variant="body2" color="text.secondary">
-                Everything required for live student tracking is configured.
-              </Typography>
-            ) : (
-              <Stack spacing={1.1}>
-                {setupTips.map((tip) => (
-                  <Typography key={tip} variant="body2" color="text.secondary">
-                    {tip}
-                  </Typography>
-                ))}
-              </Stack>
-            )}
-          </Paper>
-        </Stack>
-      </Container>
-    </Box>
+        <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
+          <h2 className="text-lg font-semibold text-slate-900 mb-3">Setup help</h2>
+          {setupTips.length === 0 ? (
+            <p className="text-sm text-slate-600">Everything required for live student tracking is configured.</p>
+          ) : (
+            <div className="space-y-2">
+              {setupTips.map((tip) => (
+                <div key={tip} className="flex gap-2 items-start">
+                  <div className="w-1.5 h-1.5 rounded-full bg-blue-500 mt-1.5 shrink-0" />
+                  <p className="text-sm text-slate-600">{tip}</p>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
   );
 }

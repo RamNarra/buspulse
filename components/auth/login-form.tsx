@@ -2,18 +2,7 @@
 
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
-import DirectionsBusRoundedIcon from "@mui/icons-material/DirectionsBusRounded";
-import GoogleIcon from "@mui/icons-material/Google";
-import {
-  Alert,
-  Box,
-  Button,
-  Chip,
-  Container,
-  Paper,
-  Stack,
-  Typography,
-} from "@mui/material";
+import { Bus, LogIn } from "lucide-react";
 
 import { useAuthSession } from "@/hooks/use-auth-session";
 
@@ -42,88 +31,53 @@ export function LoginForm() {
   };
 
   return (
-    <Box
-      sx={{
-        minHeight: "100dvh",
-        display: "grid",
-        placeItems: "center",
-        px: 2,
-        background:
-          "radial-gradient(circle at 10% 15%, rgba(18,90,212,.2), transparent 36%), radial-gradient(circle at 88% 10%, rgba(0,163,122,.15), transparent 34%), #eef2f7",
+    <div
+      className="min-h-[100dvh] grid place-items-center px-4 bg-[#eef2f7]"
+      style={{
+        background: "radial-gradient(circle at 10% 15%, rgba(18,90,212,.2), transparent 36%), radial-gradient(circle at 88% 10%, rgba(0,163,122,.15), transparent 34%), #eef2f7",
       }}
     >
-      <Container maxWidth="sm" disableGutters>
-        <Paper
-          elevation={0}
-          sx={{
-            border: "1px solid rgba(16, 24, 40, 0.09)",
-            borderRadius: 5,
-            p: { xs: 3, sm: 5 },
-            backdropFilter: "blur(8px)",
-            backgroundColor: "rgba(255,255,255,.92)",
-          }}
-        >
-          <Stack spacing={3}>
-            <Stack direction="row" spacing={1.5} sx={{ alignItems: "center" }}>
-              <Box
-                sx={{
-                  width: 42,
-                  height: 42,
-                  borderRadius: "50%",
-                  display: "grid",
-                  placeItems: "center",
-                  bgcolor: "primary.main",
-                  color: "common.white",
-                }}
-              >
-                <DirectionsBusRoundedIcon />
-              </Box>
-              <Box>
-                <Typography variant="h5">BusPulse</Typography>
-                <Typography variant="body2" color="text.secondary">
-                  Student live bus tracker
-                </Typography>
-              </Box>
-            </Stack>
+      <div className="w-full max-w-lg">
+        <div className="border border-slate-900/10 rounded-3xl p-6 sm:p-10 backdrop-blur-md bg-white/95 shadow-xl">
+          <div className="flex flex-col gap-8">
+            <div className="flex flex-row items-center gap-4">
+              <div className="w-12 h-12 rounded-full grid place-items-center bg-blue-600 text-white shadow-md">
+                <Bus className="w-6 h-6" />
+              </div>
+              <div>
+                <h1 className="text-2xl font-bold text-gray-900">BusPulse</h1>
+                <p className="text-sm text-gray-500 font-medium">Student live bus tracker</p>
+              </div>
+            </div>
 
-            <Box>
-              <Typography variant="h4" sx={{ mb: 1 }}>
-                Track your bus in real time.
-              </Typography>
-              <Typography variant="body1" color="text.secondary">
-                Sign in and go straight into your assigned bus map view.
-              </Typography>
-            </Box>
+            <div>
+              <h2 className="text-3xl font-extrabold mb-2 text-gray-900">Track your bus in real time.</h2>
+              <p className="text-base text-gray-600">Sign in and go straight into your assigned bus map view.</p>
+            </div>
 
-            <Stack direction="row" spacing={1} sx={{ alignItems: "center" }}>
-              <Chip
-                size="small"
-                color={isLiveAuthReady ? "success" : "default"}
-                label={isLiveAuthReady ? "Live Sign-In" : "Preview Mode"}
-              />
-            </Stack>
+            <div className="flex flex-row items-center gap-2">
+              <span className={`px-3 py-1 rounded-full text-xs font-semibold uppercase tracking-wider ${isLiveAuthReady ? "bg-green-100 text-green-700" : "bg-gray-100 text-gray-700"}`}>
+                {isLiveAuthReady ? "Live Sign-In" : "Preview Mode"}
+              </span>
+            </div>
 
-            <Button
-              size="large"
-              variant="contained"
-              startIcon={isLiveAuthReady ? <GoogleIcon /> : <DirectionsBusRoundedIcon />}
-              onClick={() => {
-                void handlePrimaryAction();
-              }}
+            <button
+              onClick={() => handlePrimaryAction()}
               disabled={isLoading}
-              sx={{ py: 1.25, borderRadius: 999 }}
+              className={`flex items-center justify-center gap-3 w-full py-4 px-6 rounded-full text-base font-bold text-white transition-all ${isLoading ? "opacity-70 cursor-not-allowed" : "hover:shadow-lg hover:-translate-y-0.5"} ${isLiveAuthReady ? "bg-slate-900 hover:bg-slate-800" : "bg-blue-600 hover:bg-blue-700"}`}
             >
+              {isLiveAuthReady ? <LogIn className="w-5 h-5" /> : <Bus className="w-5 h-5" />}
               {primaryLabel}
-            </Button>
+            </button>
 
             {isLiveAuthReady && error ? (
-              <Alert severity="warning" variant="outlined">
+              <div className="p-4 rounded-xl border border-orange-200 bg-orange-50 text-orange-800 text-sm font-medium">
                 {error}
-              </Alert>
+              </div>
             ) : null}
-          </Stack>
-        </Paper>
-      </Container>
-    </Box>
+          </div>
+        </div>
+      </div>
+    </div>
   );
 }

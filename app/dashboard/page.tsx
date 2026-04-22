@@ -1,33 +1,15 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo } from "react";
 import { useRouter } from "next/navigation";
-import DirectionsBusRoundedIcon from "@mui/icons-material/DirectionsBusRounded";
-import LogoutRoundedIcon from "@mui/icons-material/LogoutRounded";
-import SettingsRoundedIcon from "@mui/icons-material/SettingsRounded";
-import {
-  AppBar,
-  Avatar,
-  Box,
-  Button,
-  Chip,
-  CircularProgress,
-  IconButton,
-  ListItemIcon,
-  Menu,
-  MenuItem,
-  Paper,
-  Stack,
-  Toolbar,
-  Typography,
-} from "@mui/material";
+import { Bus, LogOut, Settings, Loader2 } from "lucide-react";
 
 import { BusMap } from "@/components/map/bus-map";
 import { useAuthSession } from "@/hooks/use-auth-session";
 import { useCurrentBusState } from "@/hooks/use-current-bus-state";
 import { useCurrentStudentProfile } from "@/hooks/use-current-student-profile";
-import { useLocationContribution } from "@/hooks/use-location-contribution";
 import { mockBus, mockStudent } from "@/lib/mock/fixtures";
+import { useAppStore } from "@/lib/store/app-store";
 
 function minutesAgo(timestamp: number | null | undefined): string {
   if (!timestamp) {
@@ -60,7 +42,7 @@ function minutesAgo(timestamp: number | null | undefined): string {
 export default function DashboardPage() {
   const router = useRouter();
   const { mode, user, isLoading: authLoading, signOut } = useAuthSession();
-  const [menuAnchor, setMenuAnchor] = useState<null | HTMLElement>(null);
+  const { isMenuOpen, toggleMenu, setMenuOpen } = useAppStore();
   const { student, error: studentError, isLoading: studentLoading } =
     useCurrentStudentProfile(user?.uid);
 
@@ -77,14 +59,7 @@ export default function DashboardPage() {
   const accountName = user?.email ?? effectiveStudent.fullName;
 
   const busId = effectiveStudent.busId ?? mockBus.id;
-  const routeId = effectiveStudent.routeId ?? mockStudent.routeId;
   const busState = useCurrentBusState({ busId });
-  const contribution = useLocationContribution({
-    uid: user?.uid ?? effectiveStudent.uid,
-    busId,
-    routeId,
-    deviceId: "student-web",
-  });
 
   const liveLabel = useMemo(() => {
     if (!busState.location) {
@@ -104,171 +79,104 @@ export default function DashboardPage() {
 
   if ((mode === "live" && authLoading) || studentLoading || busState.isLoading) {
     return (
-      <Box sx={{ minHeight: "100dvh", display: "grid", placeItems: "center" }}>
-        <Stack spacing={1.5} sx={{ alignItems: "center" }}>
-          <CircularProgress size={30} />
-          <Typography variant="body2" color="text.secondary">
-            Syncing your bus...
-          </Typography>
-        </Stack>
-      </Box>
+      <div className="min-h-[100dvh] grid place-items-center bg-[#eef2f7]">
+        <div className="flex flex-col items-center gap-4">
+          <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
+          <p className="text-sm text-gray-500">Syncing your bus...</p>
+        </div>
+      </div>
     );
   }
 
   return (
-    <Box sx={{ height: "100dvh", display: "flex", flexDirection: "column" }}>
-      <AppBar position="static" color="inherit">
-        <Toolbar sx={{ minHeight: 64, px: { xs: 1.5, sm: 2 } }}>
-          <DirectionsBusRoundedIcon color="primary" sx={{ mr: 1 }} />
-          <Typography variant="h6" sx={{ fontWeight: 700 }}>
-            BusPulse
-          </Typography>
-          <Box sx={{ flexGrow: 1 }} />
-          <IconButton
-            aria-label="Open account menu"
-            onClick={(event) => {
-              setMenuAnchor(event.currentTarget);
-            }}
-            sx={{ p: 0.5 }}
-          >
-            <Avatar
-              sx={{
-                width: 34,
-                height: 34,
-                bgcolor: "primary.main",
-                color: "common.white",
-                fontSize: "0.9rem",
-                fontWeight: 700,
-              }}
+    <div className="h-[100dvh] flex flex-col bg-slate-50 relative">
+      <header className="bg-white border-b border-slate-200 z-10">
+        <div className="flex items-center justify-between px-4 sm:px-6 h-16">
+          <div className="flex items-center gap-2">
+            <Bus className="w-6 h-6 text-blue-600" />
+            <h1 className="text-xl font-bold text-slate-900">BusPulse</h1>
+          </div>
+          
+          <div className="relative">
+            <button
+              onClick={toggleMenu}
+              className="flex items-center justify-center w-10 h-10 rounded-full bg-blue-600 text-white font-bold text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transition-shadow"
             >
               {accountInitial}
-            </Avatar>
-          </IconButton>
-          <Menu
-            anchorEl={menuAnchor}
-            open={Boolean(menuAnchor)}
-            onClose={() => {
-              setMenuAnchor(null);
-            }}
-            anchorOrigin={{ vertical: "bottom", horizontal: "right" }}
-            transformOrigin={{ vertical: "top", horizontal: "right" }}
-            slotProps={{
-              paper: {
-                sx: {
-                  mt: 1,
-                  minWidth: 210,
-                  border: "1px solid rgba(15, 23, 42, 0.08)",
-                  borderRadius: 2.5,
-                },
-              },
-            }}
-          >
-            <MenuItem disabled sx={{ opacity: "1 !important" }}>
-              <Stack spacing={0.25}>
-                <Typography variant="body2" sx={{ fontWeight: 700 }}>
-                  {accountName}
-                </Typography>
-                <Typography variant="caption" color="text.secondary">
-                  Student tracking
-                </Typography>
-              </Stack>
-            </MenuItem>
-            <MenuItem
-              onClick={() => {
-                setMenuAnchor(null);
-                router.push("/settings");
-              }}
-            >
-              <ListItemIcon>
-                <SettingsRoundedIcon fontSize="small" />
-              </ListItemIcon>
-              <Typography variant="body2">Settings</Typography>
-            </MenuItem>
-            {user ? (
-              <MenuItem
-                onClick={() => {
-                  setMenuAnchor(null);
-                  void signOut();
-                }}
-              >
-                <ListItemIcon>
-                  <LogoutRoundedIcon fontSize="small" />
-                </ListItemIcon>
-                <Typography variant="body2">Sign out</Typography>
-              </MenuItem>
-            ) : null}
-          </Menu>
-        </Toolbar>
-      </AppBar>
+            </button>
+            
+            {isMenuOpen && (
+              <>
+                <div 
+                  className="fixed inset-0 z-40"
+                  onClick={() => setMenuOpen(false)}
+                />
+                <div className="absolute right-0 mt-2 w-56 bg-white rounded-2xl shadow-xl border border-slate-200 py-2 z-50 overflow-hidden">
+                  <div className="px-4 py-3 border-b border-slate-100">
+                    <p className="text-sm font-bold text-slate-900 truncate">{accountName}</p>
+                    <p className="text-xs text-slate-500 mt-0.5">Student tracking</p>
+                  </div>
+                  
+                  <button
+                    onClick={() => {
+                      setMenuOpen(false);
+                      router.push("/settings");
+                    }}
+                    className="w-full text-left px-4 py-3 flex items-center gap-3 text-sm text-slate-700 hover:bg-slate-50 transition-colors"
+                  >
+                    <Settings className="w-4 h-4 text-slate-400" />
+                    Settings
+                  </button>
+                  
+                  {user && (
+                    <button
+                      onClick={() => {
+                        setMenuOpen(false);
+                        void signOut();
+                      }}
+                      className="w-full text-left px-4 py-3 flex items-center gap-3 text-sm text-red-600 hover:bg-red-50 transition-colors"
+                    >
+                      <LogOut className="w-4 h-4 text-red-400" />
+                      Sign out
+                    </button>
+                  )}
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      </header>
 
-      <Box sx={{ position: "relative", flex: 1, minHeight: 0 }}>
+      <main className="relative flex-1 min-h-0 bg-[#dce5f4]">
         <BusMap bus={busState.bus ?? mockBus} busLocation={busState.location} />
 
-        <Paper
-          elevation={6}
-          sx={{
-            position: "absolute",
-            left: { xs: 12, sm: 20 },
-            right: { xs: 12, sm: 20 },
-            bottom: { xs: 12, sm: 20 },
-            p: 2,
-            borderRadius: 3,
-            border: "1px solid rgba(15, 23, 42, 0.08)",
-            backgroundColor: "rgba(255, 255, 255, 0.95)",
-            backdropFilter: "blur(10px)",
-          }}
-        >
-          <Stack spacing={1.3}>
-            <Stack
-              direction="row"
-              sx={{ alignItems: "center", justifyContent: "space-between" }}
-            >
-              <Typography variant="h6" sx={{ fontWeight: 700 }}>
+        <div className="absolute left-4 right-4 sm:left-6 sm:right-auto sm:w-96 bottom-6 p-5 rounded-3xl border border-slate-900/10 bg-white/95 backdrop-blur-md shadow-xl z-10">
+          <div className="flex flex-col gap-3">
+            <div className="flex items-center justify-between">
+              <h2 className="text-xl font-bold text-slate-900">
                 {busState.bus?.code ?? mockBus.code}
-              </Typography>
-              <Chip
-                label={liveLabel}
-                color={liveLabel === "Live" ? "success" : "default"}
-                size="small"
-              />
-            </Stack>
+              </h2>
+              <span className={`px-2.5 py-1 rounded-full text-xs font-semibold uppercase tracking-wider ${liveLabel === "Live" ? "bg-green-100 text-green-700" : "bg-gray-100 text-gray-700"}`}>
+                {liveLabel}
+              </span>
+            </div>
 
-            <Typography variant="body2" color="text.secondary">
+            <p className="text-sm text-slate-700 font-medium">
               {etaSummary}
-            </Typography>
+            </p>
 
-            <Typography variant="caption" color="text.secondary">
+            <p className="text-xs text-slate-500">
               {minutesAgo(busState.location?.updatedAt)}
-            </Typography>
+            </p>
 
-            <Stack
-              direction="row"
-              sx={{ alignItems: "center", justifyContent: "space-between" }}
-            >
-              <Typography variant="body2" color="text.secondary">
-                {contribution.isTracking
-                  ? "Sharing your location"
-                  : contribution.permissionState === "denied"
-                    ? "Location permission denied"
-                    : "Location sharing off"}
-              </Typography>
-              <Button
-                size="small"
-                variant={contribution.isTracking ? "outlined" : "contained"}
-                onClick={contribution.isTracking ? contribution.stop : contribution.start}
-              >
-                {contribution.isTracking ? "Stop" : "Share"}
-              </Button>
-            </Stack>
-
-            {studentError ? (
-              <Typography variant="caption" color="warning.main">
+            {studentError && (
+              <p className="text-xs text-orange-600 font-medium mt-1">
                 Your bus assignment could not be refreshed right now.
-              </Typography>
-            ) : null}
-          </Stack>
-        </Paper>
-      </Box>
-    </Box>
+              </p>
+            )}
+          </div>
+        </div>
+      </main>
+    </div>
   );
 }

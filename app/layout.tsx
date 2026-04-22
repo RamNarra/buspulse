@@ -1,7 +1,5 @@
 import type { Metadata } from "next";
 import { JetBrains_Mono, Space_Grotesk } from "next/font/google";
-import { AppRouterCacheProvider } from "@mui/material-nextjs/v15-appRouter";
-import { AppThemeProvider } from "@/components/theme/app-theme-provider";
 
 import "./globals.css";
 
@@ -32,9 +30,7 @@ export default function RootLayout({
       className={`${spaceGrotesk.variable} ${jetBrainsMono.variable} h-full antialiased`}
     >
       <body className="min-h-full">
-        <AppRouterCacheProvider>
-          <AppThemeProvider>{children}</AppThemeProvider>
-        </AppRouterCacheProvider>
+        {children}
       </body>
     </html>
   );
