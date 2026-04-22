@@ -30,7 +30,7 @@ export const mockCollege: College = {
 export const mockRoute: Route = {
   id: "route-a1",
   collegeId: mockCollege.id,
-  name: "Kukatpally to Campus",
+  name: "Route 15 - Kukatpally to Campus",
   direction: "inbound",
   stopIds: ["stop-kphb", "stop-jntuh", "stop-nizampet", "stop-campus"],
   active: true,
@@ -81,7 +81,7 @@ export const mockBus: Bus = {
   id: "bus-a1",
   collegeId: mockCollege.id,
   routeId: mockRoute.id,
-  code: "AEC-A1",
+  code: "Route 15",
   plateNumber: "TS09AB1234",
   capacity: 48,
   active: true,

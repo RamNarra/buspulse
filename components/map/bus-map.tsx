@@ -67,7 +67,7 @@ export function BusMap({ bus, busLocation }: BusMapProps) {
 
   if (!canAttemptLiveMap) {
     return (
-      <div className="w-full h-full relative rounded-none md:rounded-3xl overflow-hidden bg-[#dce5f4]">
+      <div className="w-full h-full relative overflow-hidden bg-slate-950">
         <div className="absolute inset-0 flex items-center justify-center p-8 text-center">
           <div className="flex flex-col items-center gap-4">
             <div className="w-16 h-16 rounded-full bg-white flex items-center justify-center shadow-sm">
@@ -89,7 +89,7 @@ export function BusMap({ bus, busLocation }: BusMapProps) {
   }
 
   return (
-    <div className="w-full h-full relative rounded-none md:rounded-3xl overflow-hidden bg-[#dce5f4]">
+    <div className="w-full h-full relative overflow-hidden bg-slate-950">
       <APIProvider apiKey={mapsKey} onLoad={() => {}}>
         <Map
           defaultZoom={15}
@@ -97,7 +97,7 @@ export function BusMap({ bus, busLocation }: BusMapProps) {
           mapId="buspulse-map-id"
           disableDefaultUI={true}
           gestureHandling="greedy"
-          colorScheme="LIGHT"
+          colorScheme="DARK"
           mapTypeId={mapType}
         >
           <AdvancedMarker 
@@ -127,20 +127,7 @@ export function BusMap({ bus, busLocation }: BusMapProps) {
         </Map>
       </APIProvider>
 
-      <div className="absolute bottom-6 left-6 right-6 flex justify-center pointer-events-none">
-        <div className="flex items-center gap-3 bg-white px-5 py-3 rounded-2xl shadow-lg pointer-events-auto border border-slate-200">
-          <div className="w-10 h-10 rounded-full bg-blue-600 flex items-center justify-center shadow-inner">
-            <MapPin className="w-5 h-5 text-white" />
-          </div>
-          <div className="pr-2">
-            <p className="text-base font-bold text-slate-900 leading-tight mb-1">{bus.code}</p>
-            <p className="text-xs font-bold text-green-600 flex items-center gap-1.5 uppercase tracking-wide">
-              <span className="w-1.5 h-1.5 rounded-full bg-green-500 inline-block animate-pulse"></span>
-              Live Tracking
-            </p>
-          </div>
-        </div>
-      </div>
+
     </div>
   );
 }
