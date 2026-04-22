@@ -35,7 +35,7 @@ function StatusRow({
 
 export default function SettingsPage() {
   const { mode, user, signOut } = useAuthSession();
-  const profile = useCurrentStudentProfile(user?.uid);
+  const profile = useCurrentStudentProfile(user);
   const setup = useSetupStatus();
   const effectiveStudent = profile.student ?? mockStudent;
 

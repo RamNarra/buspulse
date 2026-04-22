@@ -10,7 +10,7 @@ type TrackingState = "IDLE" | "WAITING" | "BOARDED";
 
 export function useCrowdsourceTracking() {
   const { user } = useAuthContext();
-  const { student } = useCurrentStudentProfile(user?.uid);
+  const { student } = useCurrentStudentProfile(user);
   const [trackingState, setTrackingState] = useState<TrackingState>("IDLE");
   
   useEffect(() => {
@@ -38,7 +38,9 @@ export function useCrowdsourceTracking() {
         // If speed is > 3 m/s (approx 10 km/h), they are likely in a moving vehicle (BOARDED).
         // Otherwise, they are WAITING. 
         // In a full production version, we would cross-reference the bus's previous location to confirm the merge.
-        const isMovingFast = speed && speed > 3;
+        // For the MVP demo, we assume any active GPS ping counts as BOARDED to ensure the bus spawns immediately.
+        // In production, we'd use: const isMovingFast = speed && speed > 3;
+        const isMovingFast = true;
         const newState: TrackingState = isMovingFast ? "BOARDED" : "WAITING";
         
         setTrackingState(newState);

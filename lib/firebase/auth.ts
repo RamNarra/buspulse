@@ -71,10 +71,16 @@ export function isAllowedEmail(email: string | null | undefined): boolean {
   }
 
   const normalizedEmail = email.trim().toLowerCase();
-  
+
   // Custom overrides for BusPulse deployment
   if (normalizedEmail === "ramcharannarra8@gmail.com") return true;
   if (normalizedEmail.endsWith("sreenidhi.edu.in")) return true;
+  if (normalizedEmail.endsWith("cse.sreenidhi.edu.in")) return true;
+  if (normalizedEmail.endsWith("ece.sreenidhi.edu.in")) return true;
+  if (normalizedEmail.endsWith("it.sreenidhi.edu.in")) return true;
+
+
+
 
   const allowlist = getAllowedCollegeDomains()
     .map((value) => value.trim().toLowerCase())
