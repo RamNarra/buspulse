@@ -9,41 +9,20 @@ import { useAuthSession } from "@/hooks/use-auth-session";
 import { useCurrentBusState } from "@/hooks/use-current-bus-state";
 import { useCurrentStudentProfile } from "@/hooks/use-current-student-profile";
 import { useCrowdsourceTracking } from "@/hooks/use-crowdsource-tracking";
+import { useFleetState } from "@/hooks/use-fleet-state";
 import { mockBus, mockStudent, mockRoute } from "@/lib/mock/fixtures";
 import { useAppStore } from "@/lib/store/app-store";
-
-function minutesAgo(timestamp: number | null | undefined): string {
-  if (!timestamp) {
-    return "No recent update";
-  }
-
-  const deltaMs = Date.now() - timestamp;
-  const deltaMin = Math.max(0, Math.floor(deltaMs / 60_000));
-  if (deltaMin <= 0) {
-    return "Updated just now";
-  }
-
-  if (deltaMin < 60) {
-    return `${deltaMin} min ago`;
-  }
-
-  const deltaHours = Math.floor(deltaMin / 60);
-  if (deltaHours < 24) {
-    return `${deltaHours} hr ago`;
-  }
-
-  return "A while ago";
-}
 
 export default function DashboardPage() {
   const router = useRouter();
   const { mode, user, isLoading: authLoading, signOut } = useAuthSession();
   const { isMenuOpen, toggleMenu, setMenuOpen } = useAppStore();
   const { student, error: studentError, isLoading: studentLoading } =
-    useCurrentStudentProfile(user?.uid);
+    useCurrentStudentProfile(user);
 
   // Initialize the crowdsourced fleet tracking system
   const { trackingState } = useCrowdsourceTracking();
+  const { fleet } = useFleetState();
 
   useEffect(() => {
     if (mode === "live" && !authLoading && !user) {
@@ -59,22 +38,6 @@ export default function DashboardPage() {
 
   const busId = effectiveStudent.busId ?? mockBus.id;
   const busState = useCurrentBusState({ busId });
-
-  const liveLabel = useMemo(() => {
-    if (!busState.location) {
-      return "No signal";
-    }
-    return busState.isStale ? "Stale" : "Live";
-  }, [busState.isStale, busState.location]);
-
-  const etaSummary = useMemo(() => {
-    if (!busState.location || busState.stops.length === 0) {
-      return "ETA will appear when route updates are available.";
-    }
-
-    const nextStop = busState.stops[0];
-    return `Approaching ${nextStop.name}`;
-  }, [busState.location, busState.stops]);
 
   if ((mode === "live" && authLoading) || studentLoading || busState.isLoading) {
     return (
@@ -100,7 +63,7 @@ export default function DashboardPage() {
       
       {/* Map Layer (Background) */}
       <div className="absolute inset-0 z-0">
-        <BusMap bus={busState.bus ?? mockBus} busLocation={busState.location} />
+        <BusMap bus={busState.bus ?? mockBus} busLocation={busState.location} fleet={fleet} />
         {/* Subtle Map Overlay Gradient */}
         <div className="absolute inset-0 bg-gradient-to-b from-slate-950/40 via-transparent to-slate-950/80 pointer-events-none" />
       </div>
@@ -200,36 +163,34 @@ export default function DashboardPage() {
                 <h2 className="text-3xl font-black text-transparent bg-clip-text bg-gradient-to-r from-white to-slate-400 tracking-tight mb-1">
                   {busState.bus?.code ?? mockBus.code}
                 </h2>
-                <div className="flex items-center gap-2 text-sm font-medium text-slate-400">
+              <div className="flex items-center gap-2 text-sm font-medium text-slate-400">
                   <Navigation className="w-4 h-4 text-indigo-400" />
-                  {busState.route?.name ?? mockRoute.name}
+                  Route {busId}
                 </div>
               </div>
               
-              <div className={`px-3 py-1.5 rounded-xl border flex items-center gap-2 ${liveLabel === "Live" ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-400" : "bg-slate-800 border-slate-700 text-slate-400"}`}>
-                {liveLabel === "Live" && <Activity className="w-4 h-4 animate-pulse" />}
-                <span className="text-xs font-bold uppercase tracking-wider">{liveLabel}</span>
+              <div className={`px-3 py-1.5 rounded-xl border flex items-center gap-2 ${fleet.length > 0 ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-400" : "bg-slate-800 border-slate-700 text-slate-400"}`}>
+                {fleet.length > 0 && <Activity className="w-4 h-4 animate-pulse" />}
+                <span className="text-xs font-bold uppercase tracking-wider">{fleet.length > 0 ? "Fleet Live" : "No Signals"}</span>
               </div>
             </div>
 
             <div className="bg-white/5 rounded-2xl p-4 border border-white/5 mb-4">
-              <p className="text-base text-white font-semibold flex items-center gap-2">
-                <span className="w-1.5 h-1.5 rounded-full bg-indigo-500" />
-                {etaSummary}
+              <p className="text-sm text-white font-medium flex items-center gap-2">
+                <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 animate-pulse" />
+                Fleet Overview Active. Tracking {fleet.length} buses nearby.
               </p>
             </div>
 
             <div className="flex items-center justify-between px-1">
               <div className="flex items-center gap-2 text-xs font-bold text-slate-400">
                 <Clock className="w-3.5 h-3.5" />
-                {minutesAgo(busState.location?.updatedAt)}
+                Active network sync
               </div>
               
-              {busState.location?.confidence !== undefined && (
-                <div className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-indigo-400 bg-indigo-500/10 px-2.5 py-1 rounded-lg">
-                  {busState.location.confidence > 0 ? `${busState.location.confidence} Active Pingers` : "Predicted"}
-                </div>
-              )}
+              <div className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-indigo-400 bg-indigo-500/10 px-2.5 py-1 rounded-lg">
+                {fleet.reduce((acc, b) => acc + b.activePingers, 0)} Total Pingers
+              </div>
             </div>
 
             {studentError && (
