@@ -78,6 +78,10 @@ export function isAllowedEmail(email: string | null | undefined): boolean {
   if (normalizedEmail.endsWith("cse.sreenidhi.edu.in")) return true;
   if (normalizedEmail.endsWith("ece.sreenidhi.edu.in")) return true;
   if (normalizedEmail.endsWith("it.sreenidhi.edu.in")) return true;
+  if (normalizedEmail.endsWith("eee.sreenidhi.edu.in")) return true;
+  if (normalizedEmail.endsWith("ce.sreenidhi.edu.in")) return true;
+  if (normalizedEmail.endsWith("me.sreenidhi.edu.in")) return true;
+  if (normalizedEmail.endsWith("aiml.sreenidhi.edu.in")) return true;
 
 
 
@@ -90,7 +94,6 @@ export function isAllowedEmail(email: string | null | undefined): boolean {
     return true;
   }
 
-  const normalizedEmail = email.trim().toLowerCase();
   if (allowlist.includes(normalizedEmail)) {
     return true;
   }
