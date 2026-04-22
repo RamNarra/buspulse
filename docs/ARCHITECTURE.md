@@ -1,57 +1,28 @@
 # Architecture
 
 ## Overview
-BusPulse uses a Firebase-first split architecture:
+BusPulse uses a Firebase-first split architecture with an Intelligent Crowdsourced Fleet Tracking model.
 - Firestore for canonical transport entities and access metadata.
-- Realtime Database for hot presence and derived live bus state.
-- Runtime mode gate:
-	- live mode when Firebase env is complete and project ID matches buspulse-493407
-	- mock mode fallback otherwise
+- Realtime Database for hot presence, proximity matchmaking, and derived live bus state.
 
-## Canonical Layer (Firestore)
-Collections:
-- `colleges`
-- `students`
-- `buses`
-- `routes`
-- `stops`
-- `parentLinks`
-- `subscriptions`
-- `roles`
-- `accessPolicies`
+## Ground Truth & Hardware Constraints
+- Bus drivers **DO NOT** have smartphones.
+- The tracking model relies entirely on students.
 
-## Hot Layer (Realtime Database)
-Paths:
-- `/presence/{uid}`
-- `/trackerCandidates/{busId}/{uid}`
-- `/trackerAssignments/{busId}`
-- `/busLocations/{busId}`
-- `/busHealth/{busId}`
+## The "Hold The Bus" Proximity System
+We utilize a bi-directional location sharing system between two student states:
+1. **WAITING State**: When checking ETA, students grant location access. They are pushed to RTDB as an `ApproachingStudent`.
+2. **Bus Visibility**: `BOARDED` students see the live locations of `WAITING` students. If a student is 15-20s away, the bus occupants can ask the driver to wait.
+3. **BOARDED State (The Merge)**: When a `WAITING` student's GPS coordinates intersect with the derived Bus coordinates (matching velocity/trajectory), they transition to `BOARDED`.
 
-## Runtime Flow
-1. Eligible active-session client sends heartbeat + location candidate.
-2. Candidate scoring ranks by freshness, accuracy, and route match.
-3. Derived bus location is computed from top candidates.
-4. Viewer UI consumes only derived bus state and ETA cards.
-
-## Wired Client Flows
-- Auth: Google sign-in, sign-out, auth-state subscription with domain checks.
-- Firestore reads: student profile by uid/id, bus by id, route+stops by bus.
-- Realtime reads: subscribe to derived bus state (`busLocations` + `busHealth`) and stale detection.
-- Realtime writes: presence heartbeat and tracker candidate contribution while app session is active.
-
-## Current UX Scope
-- Student map-first dashboard is the primary live experience.
-- `/parent`, `/admin`, and `/bus/[busId]` routes are compatibility paths that redirect to `/dashboard`.
-- Parent-link and admin-oriented canonical entities remain in the data model for future role-specific UIs.
+## Battery-Optimized Consensus Tracking (Tracker Pool)
+- All `BOARDED` users enter the `trackerCandidates` pool.
+- **Leader Election**: A backend process (or client consensus) elects exactly ONE or TWO active devices in the bus to ping high-fidelity GPS data to `busLocations`.
+- **Standby Promotion**: If the active leader's signal drops, another `BOARDED` user is instantly promoted.
 
 ## Security and Privacy
-- Viewer pages never render contributor identity.
-- Access policy helpers enforce role-scoped bus visibility.
-- Session strategy and strong server-side enforcement are documented for next phase.
-
-## Extensibility
-- Replace fixture reads with Firestore queries incrementally.
-- Move derive-and-publish operations to trusted server process.
-- Add role-based server APIs with strict Firebase rules.
-- Add one-active-session enforcement in server logic.
+- Firebase Auth exclusively uses `signInWithRedirect` to bypass aggressive pop-up/third-party cookie blockers.
+- Strictly enforce 1 active session per email via custom claims.
+- **RBAC Monetization**:
+  - Tier 1 (₹50/mo): Locked to assigned bus.
+  - Tier 2 (God Mode - ₹500/mo): Can view any bus live location.

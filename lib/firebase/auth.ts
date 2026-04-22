@@ -2,7 +2,8 @@ import {
   GoogleAuthProvider,
   onAuthStateChanged,
   getAuth,
-  signInWithPopup,
+  signInWithRedirect,
+  getRedirectResult,
   signOut,
   type Auth,
   type User,
@@ -13,7 +14,7 @@ import { getAllowedCollegeDomains } from "@/lib/config/env";
 import { getFirebaseClientApp, getFirebaseClientError } from "@/lib/firebase/client";
 
 type AuthResult =
-  | { ok: true; credential: UserCredential; user: User }
+  | { ok: true; credential?: UserCredential; user?: User }
   | { ok: false; error: string; code?: string };
 
 function getAuthErrorCode(error: unknown): string | undefined {
@@ -29,22 +30,6 @@ function getUserFriendlyAuthError(error: unknown): { message: string; code?: str
   const code = getAuthErrorCode(error);
 
   switch (code) {
-    case "auth/popup-blocked":
-      return {
-        code,
-        message:
-          "Sign-in popup was blocked by your browser. Allow popups for this site and try again.",
-      };
-    case "auth/popup-closed-by-user":
-      return {
-        code,
-        message: "Sign-in popup was closed before completion. Please try again.",
-      };
-    case "auth/cancelled-popup-request":
-      return {
-        code,
-        message: "Another sign-in request is already in progress. Please try again.",
-      };
     case "auth/network-request-failed":
       return {
         code,
@@ -125,6 +110,33 @@ export function subscribeToAuthUser(
   return onAuthStateChanged(auth, onUser);
 }
 
+export async function checkRedirectResult(): Promise<AuthResult | null> {
+  const auth = getFirebaseAuth();
+  if (!auth) return null;
+
+  try {
+    const credential = await getRedirectResult(auth);
+    if (credential && credential.user) {
+      if (!isAllowedEmail(credential.user.email)) {
+        await signOut(auth);
+        return {
+          ok: false,
+          error: "This email account is not allowed for this college.",
+        };
+      }
+      return { ok: true, credential, user: credential.user };
+    }
+    return null; // No redirect result
+  } catch (error) {
+    const parsed = getUserFriendlyAuthError(error);
+    return {
+      ok: false,
+      code: parsed.code,
+      error: parsed.message,
+    };
+  }
+}
+
 export async function signInWithGoogle(): Promise<AuthResult> {
   const auth = getFirebaseAuth();
 
@@ -141,16 +153,8 @@ export async function signInWithGoogle(): Promise<AuthResult> {
   provider.setCustomParameters({ prompt: "select_account" });
 
   try {
-    const credential = await signInWithPopup(auth, provider);
-    if (!isAllowedEmail(credential.user.email)) {
-      await signOut(auth);
-      return {
-        ok: false,
-        error: "This email account is not allowed for this college.",
-      };
-    }
-
-    return { ok: true, credential, user: credential.user };
+    await signInWithRedirect(auth, provider);
+    return { ok: true }; // We will redirect, so this doesn't matter much.
   } catch (error) {
     const parsed = getUserFriendlyAuthError(error);
 

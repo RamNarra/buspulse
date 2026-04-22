@@ -1,81 +1,84 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Bus, LogIn } from "lucide-react";
+import { Bus, LogIn, ShieldCheck } from "lucide-react";
 
-import { useAuthSession } from "@/hooks/use-auth-session";
+import { signInWithGoogle, checkRedirectResult } from "@/lib/firebase/auth";
 
 export function LoginForm() {
   const router = useRouter();
-  const { mode, isLoading, user, error, signIn } = useAuthSession();
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (user) {
-      router.replace("/dashboard");
+    // Check for a redirect result when the component mounts
+    checkRedirectResult().then((result) => {
+      setIsLoading(false);
+      if (result) {
+        if (result.ok) {
+          router.push("/dashboard");
+        } else {
+          setError(result.error);
+        }
+      }
+    });
+  }, [router]);
+
+  const handleGoogleLogin = async () => {
+    setIsLoading(true);
+    setError(null);
+
+    const result = await signInWithGoogle();
+
+    if (!result.ok) {
+      setError(result.error);
+      setIsLoading(false);
     }
-  }, [router, user]);
-
-  const isLiveAuthReady = mode === "live";
-  const primaryLabel = isLiveAuthReady
-    ? "Continue with Google"
-    : "Open Tracker Preview";
-
-  const handlePrimaryAction = async () => {
-    if (!isLiveAuthReady) {
-      router.push("/dashboard");
-      return;
-    }
-
-    await signIn();
+    // If ok, it will redirect, so keep loading state true
   };
 
   return (
-    <div
-      className="min-h-[100dvh] grid place-items-center px-4 bg-[#eef2f7]"
-      style={{
-        background: "radial-gradient(circle at 10% 15%, rgba(18,90,212,.2), transparent 36%), radial-gradient(circle at 88% 10%, rgba(0,163,122,.15), transparent 34%), #eef2f7",
-      }}
-    >
-      <div className="w-full max-w-lg">
-        <div className="border border-slate-900/10 rounded-3xl p-6 sm:p-10 backdrop-blur-md bg-white/95 shadow-xl">
-          <div className="flex flex-col gap-8">
-            <div className="flex flex-row items-center gap-4">
-              <div className="w-12 h-12 rounded-full grid place-items-center bg-blue-600 text-white shadow-md">
-                <Bus className="w-6 h-6" />
-              </div>
-              <div>
-                <h1 className="text-2xl font-bold text-gray-900">BusPulse</h1>
-                <p className="text-sm text-gray-500 font-medium">Student live bus tracker</p>
-              </div>
-            </div>
+    <div className="w-full max-w-md p-8 bg-white/80 backdrop-blur-xl rounded-3xl shadow-2xl border border-white/50 relative overflow-hidden">
+      <div className="absolute top-0 left-0 w-full h-2 bg-gradient-to-r from-blue-500 via-indigo-500 to-purple-500" />
+      
+      <div className="flex flex-col items-center justify-center text-center space-y-6">
+        <div className="w-16 h-16 bg-blue-600 rounded-2xl flex items-center justify-center shadow-lg shadow-blue-600/20 mb-2">
+          <Bus className="w-8 h-8 text-white" />
+        </div>
+        
+        <div className="space-y-2">
+          <h1 className="text-3xl font-extrabold text-slate-900 tracking-tight">Welcome to BusPulse</h1>
+          <p className="text-sm text-slate-500 font-medium max-w-xs mx-auto leading-relaxed">
+            Sign in with your verified college email to view live fleet locations.
+          </p>
+        </div>
 
-            <div>
-              <h2 className="text-3xl font-extrabold mb-2 text-gray-900">Track your bus in real time.</h2>
-              <p className="text-base text-gray-600">Sign in and go straight into your assigned bus map view.</p>
-            </div>
-
-            <div className="flex flex-row items-center gap-2">
-              <span className={`px-3 py-1 rounded-full text-xs font-semibold uppercase tracking-wider ${isLiveAuthReady ? "bg-green-100 text-green-700" : "bg-gray-100 text-gray-700"}`}>
-                {isLiveAuthReady ? "Live Sign-In" : "Preview Mode"}
-              </span>
-            </div>
-
-            <button
-              onClick={() => handlePrimaryAction()}
-              disabled={isLoading}
-              className={`flex items-center justify-center gap-3 w-full py-4 px-6 rounded-full text-base font-bold text-white transition-all ${isLoading ? "opacity-70 cursor-not-allowed" : "hover:shadow-lg hover:-translate-y-0.5"} ${isLiveAuthReady ? "bg-slate-900 hover:bg-slate-800" : "bg-blue-600 hover:bg-blue-700"}`}
-            >
-              {isLiveAuthReady ? <LogIn className="w-5 h-5" /> : <Bus className="w-5 h-5" />}
-              {primaryLabel}
-            </button>
-
-            {isLiveAuthReady && error ? (
-              <div className="p-4 rounded-xl border border-orange-200 bg-orange-50 text-orange-800 text-sm font-medium">
-                {error}
-              </div>
-            ) : null}
+        {error && (
+          <div className="w-full bg-red-50 text-red-600 px-4 py-3 rounded-xl text-sm font-semibold border border-red-100 flex items-start gap-3 text-left">
+            <span className="shrink-0">⚠️</span>
+            <p>{error}</p>
           </div>
+        )}
+
+        <button
+          onClick={() => void handleGoogleLogin()}
+          disabled={isLoading}
+          className="relative w-full flex items-center justify-center gap-3 bg-white text-slate-700 font-bold px-6 py-4 rounded-xl border-2 border-slate-200 hover:border-slate-300 hover:bg-slate-50 focus:outline-none focus:ring-4 focus:ring-blue-500/20 transition-all disabled:opacity-50 disabled:cursor-not-allowed group"
+        >
+          {isLoading ? (
+            <div className="w-6 h-6 border-3 border-blue-600 border-t-transparent rounded-full animate-spin" />
+          ) : (
+            <>
+              <LogIn className="w-5 h-5 text-blue-600 group-hover:scale-110 transition-transform" />
+              <span>Continue with Google</span>
+            </>
+          )}
+        </button>
+
+        <div className="w-full pt-4 border-t border-slate-100 flex items-center justify-center gap-2 text-xs text-slate-400 font-medium">
+          <ShieldCheck className="w-4 h-4" />
+          <span>Access strictly restricted to verified college domains.</span>
         </div>
       </div>
     </div>

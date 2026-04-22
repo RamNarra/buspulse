@@ -1,21 +1,29 @@
 # BusPulse Agent Guide
 
 ## Product Intent
-- BusPulse is a live bus-tracking MVP for engineering colleges.
-- Students are mapped to exactly one bus and can only view that bus.
-- Parents can only view the linked student's bus.
-- Admin role can manage all entities.
+- BusPulse is a live bus-tracking platform for engineering colleges.
+- **CRITICAL**: Bus drivers **do not have smartphones**. We use an **Intelligent Crowdsourced Fleet Tracking** model using the students themselves.
+- Students are categorized into `WAITING` and `BOARDED` states to facilitate a "Hold the Bus" proximity system.
 - Viewers must only receive bus-level derived state, never raw contributor identity.
 
 ## Tech Stack
 - Next.js App Router with TypeScript
 - Tailwind CSS
-- Firebase Web SDK (Auth, Firestore, Realtime Database)
+- Firebase Web SDK (Auth via `signInWithRedirect`, Firestore, Realtime Database)
 - Zod for validation, React Hook Form for forms
+- Zustand for global UI state
 
 ## Source of Truth
 - Firestore holds canonical entities: colleges, students, buses, routes, stops, parentLinks, subscriptions, roles, accessPolicies.
-- Realtime Database holds hot data: presence, trackerCandidates, trackerAssignments, busLocations, busHealth.
+- Realtime Database holds hot data: presence, approachingStudents (`WAITING`), trackerCandidates (`BOARDED`), trackerAssignments (Leader Election), busLocations, busHealth.
+
+## Core Mechanics
+1. **Hold the Bus (Proximity Matchmaking)**: `WAITING` students broadcast their location. `BOARDED` students can see `WAITING` students on their map at upcoming stops. If a waiting student is close, occupants ask the driver to wait.
+2. **State Merge**: When a `WAITING` student intersects with the bus location/velocity, they transition to `BOARDED`.
+3. **Tracker Pool & Leader Election**: To save battery, only 1 or 2 `BOARDED` students actively ping high-fidelity GPS (`busLocations`). The system auto-promotes standby `BOARDED` users if the leader drops.
+4. **Monetization & RBAC**:
+   - Tier 1 (Base - ₹50/mo): Locked to college domain. Can only view pre-assigned bus route.
+   - Tier 2 (God Mode - ₹500/mo): Can view any bus in the college fleet.
 
 ## Build and Validation
 - Install: `npm install`
@@ -28,9 +36,9 @@
 ## Operating Rules for Agents
 - Trust docs in `docs/` first, then inspect source.
 - Keep a strict privacy boundary between contributor-level and viewer-level data.
-- Do not introduce unsupported background tracking claims.
+- NEVER use `signInWithPopup`. Always use `signInWithRedirect`.
+- Enforce exactly 1 active session per email.
 - Do not hardcode secrets; use `.env.local` and `.env.example`.
-- Preserve existing architecture split: canonical layer vs hot live layer.
 - Add tests when adding non-trivial business logic.
 
 ## File Map
@@ -38,15 +46,6 @@
 - `components/`: UI components
 - `lib/config/`: runtime environment checks
 - `lib/firebase/`: Firebase setup and wrappers
-- `lib/access/`: visibility and role policy helpers
-- `lib/live/`: tracking and confidence derivation helpers
-- `lib/mock/`: local fixtures for UI-only development
+- `lib/store/`: Zustand state management
 - `types/`: interfaces and Zod schemas
 - `docs/`: product and architecture references
-
-## Manual Setup Boundaries
-- Pause and ask the user only for real external blockers:
-	- Firebase project credentials
-	- GCP API enablement
-	- OAuth consent/domain verification
-	- Billing upgrades

@@ -46,15 +46,17 @@ export function useAuthSession() {
   }, [mode]);
 
   const signIn = useCallback(async () => {
+    setIsLoading(true);
+    setError(null);
+
     const result = await signInWithGoogle();
-    if (!result.ok) {
+    if (result.ok) {
+      setUser(result.user ?? null);
+    } else {
       setError(result.error);
-      return result;
     }
 
-    setError(null);
-    setUser(result.user);
-    return result;
+    setIsLoading(false);
   }, []);
 
   const signOut = useCallback(async () => {
