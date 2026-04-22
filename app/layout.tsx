@@ -19,6 +19,8 @@ export const metadata: Metadata = {
     "Live bus tracking MVP for engineering colleges using Firebase canonical + realtime layers.",
 };
 
+import { AuthProvider } from "@/components/auth/auth-provider";
+
 export default function RootLayout({
   children,
 }: Readonly<{
@@ -30,7 +32,9 @@ export default function RootLayout({
       className={`${spaceGrotesk.variable} ${jetBrainsMono.variable} h-full antialiased`}
     >
       <body className="min-h-full">
-        {children}
+        <AuthProvider>
+          {children}
+        </AuthProvider>
       </body>
     </html>
   );

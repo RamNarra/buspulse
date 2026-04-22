@@ -1,42 +1,30 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useState } from "react";
 import { Bus, LogIn, ShieldCheck } from "lucide-react";
-
-import { signInWithGoogle, checkRedirectResult } from "@/lib/firebase/auth";
+import { signInWithGoogle } from "@/lib/firebase/auth";
+import { useAuthContext } from "@/components/auth/auth-provider";
 
 export function LoginForm() {
-  const router = useRouter();
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    // Check for a redirect result when the component mounts
-    checkRedirectResult().then((result) => {
-      setIsLoading(false);
-      if (result) {
-        if (result.ok) {
-          router.push("/dashboard");
-        } else {
-          setError(result.error);
-        }
-      }
-    });
-  }, [router]);
+  const { isLoading: isAuthLoading, error: authError } = useAuthContext();
+  const [isClickLoading, setIsClickLoading] = useState(false);
+  const [clickError, setClickError] = useState<string | null>(null);
 
   const handleGoogleLogin = async () => {
-    setIsLoading(true);
-    setError(null);
+    setIsClickLoading(true);
+    setClickError(null);
 
     const result = await signInWithGoogle();
-
+    
+    // signInWithGoogle triggers a redirect. If it fails before redirecting:
     if (!result.ok) {
-      setError(result.error);
-      setIsLoading(false);
+      setClickError(result.error);
+      setIsClickLoading(false);
     }
-    // If ok, it will redirect, so keep loading state true
   };
+
+  const isLoading = isAuthLoading || isClickLoading;
+  const error = authError || clickError;
 
   return (
     <div className="w-full max-w-md p-8 bg-white/80 backdrop-blur-xl rounded-3xl shadow-2xl border border-white/50 relative overflow-hidden">
