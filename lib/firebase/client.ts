@@ -8,9 +8,16 @@ let cachedError: string | null = null;
 function buildConfig() {
   const env = getPublicRuntimeEnv();
 
+  // Fix for third-party cookie blocking on signInWithRedirect:
+  // Force the authDomain to the current host so Firebase uses a first-party iframe.
+  // Next.js handles the proxy via rewrites in next.config.ts.
+  const dynamicAuthDomain = typeof window !== "undefined" 
+    ? window.location.host 
+    : env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN;
+
   return {
     apiKey: env.NEXT_PUBLIC_FIREBASE_API_KEY,
-    authDomain: env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN,
+    authDomain: dynamicAuthDomain,
     projectId: env.NEXT_PUBLIC_FIREBASE_PROJECT_ID,
     storageBucket: env.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET,
     messagingSenderId: env.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID,
