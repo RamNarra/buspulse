@@ -1,12 +1,13 @@
 "use client";
 
-import { useState } from "react";
 import { Bus, LogIn, ShieldCheck } from "lucide-react";
-import { signInWithGoogle } from "@/lib/firebase/auth";
+import { getAuth, signInWithRedirect, GoogleAuthProvider } from "firebase/auth";
+import { getFirebaseClientApp } from "@/lib/firebase/client";
 import { useAuthContext } from "@/components/auth/auth-provider";
+import { useState } from "react";
 
 export function LoginForm() {
-  const { isLoading: isAuthLoading, error: authError } = useAuthContext();
+  const { isLoading: isAuthLoading } = useAuthContext();
   const [isClickLoading, setIsClickLoading] = useState(false);
   const [clickError, setClickError] = useState<string | null>(null);
 
@@ -14,17 +15,24 @@ export function LoginForm() {
     setIsClickLoading(true);
     setClickError(null);
 
-    const result = await signInWithGoogle();
-    
-    // signInWithGoogle triggers a redirect. If it fails before redirecting:
-    if (!result.ok) {
-      setClickError(result.error);
+    try {
+      const app = getFirebaseClientApp();
+      if (!app) throw new Error("Firebase app not initialized");
+      const auth = getAuth(app);
+      const provider = new GoogleAuthProvider();
+      provider.setCustomParameters({ prompt: "select_account" });
+      
+      console.log("[LoginForm] Calling signInWithRedirect...");
+      await signInWithRedirect(auth, provider);
+      // It redirects here, so the next lines shouldn't run usually.
+    } catch (error: unknown) {
+      console.error("[LoginForm] Error triggering redirect:", error);
+      setClickError(error instanceof Error ? error.message : "Unknown error");
       setIsClickLoading(false);
     }
   };
 
   const isLoading = isAuthLoading || isClickLoading;
-  const error = authError || clickError;
 
   return (
     <div className="w-full max-w-md p-8 bg-white/80 backdrop-blur-xl rounded-3xl shadow-2xl border border-white/50 relative overflow-hidden">
@@ -42,10 +50,10 @@ export function LoginForm() {
           </p>
         </div>
 
-        {error && (
+        {clickError && (
           <div className="w-full bg-red-50 text-red-600 px-4 py-3 rounded-xl text-sm font-semibold border border-red-100 flex items-start gap-3 text-left">
             <span className="shrink-0">⚠️</span>
-            <p>{error}</p>
+            <p>{clickError}</p>
           </div>
         )}
 

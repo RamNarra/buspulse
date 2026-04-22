@@ -19,7 +19,7 @@ export function useAuthSession() {
     mode,
     isLoading: context.isLoading,
     user: context.user,
-    error: context.error,
+    error: null,
     signOut,
   };
 }
