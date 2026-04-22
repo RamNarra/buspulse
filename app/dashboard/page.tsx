@@ -10,6 +10,7 @@ import { useCurrentBusState } from "@/hooks/use-current-bus-state";
 import { useCurrentStudentProfile } from "@/hooks/use-current-student-profile";
 import { useCrowdsourceTracking } from "@/hooks/use-crowdsource-tracking";
 import { useFleetState } from "@/hooks/use-fleet-state";
+import { usePeerLocations } from "@/hooks/use-peer-locations";
 import { mockBus, mockStudent, mockRoute } from "@/lib/mock/fixtures";
 import { useAppStore } from "@/lib/store/app-store";
 
@@ -38,6 +39,8 @@ export default function DashboardPage() {
 
   const busId = effectiveStudent.busId ?? mockBus.id;
   const busState = useCurrentBusState({ busId });
+  // Subscribe to other people on the same bus (the green dots)
+  const { peers } = usePeerLocations(busId, user?.uid);
 
   if ((mode === "live" && authLoading) || studentLoading || busState.isLoading) {
     return (
@@ -63,7 +66,7 @@ export default function DashboardPage() {
       
       {/* Map Layer (Background) */}
       <div className="absolute inset-0 z-0">
-        <BusMap bus={busState.bus ?? mockBus} busLocation={busState.location} fleet={fleet} />
+        <BusMap bus={busState.bus ?? mockBus} busLocation={busState.location} fleet={fleet} peers={peers} />
         {/* Subtle Map Overlay Gradient */}
         <div className="absolute inset-0 bg-gradient-to-b from-slate-950/40 via-transparent to-slate-950/80 pointer-events-none" />
       </div>

@@ -7,12 +7,14 @@ import { Map as MapIcon, MapPin, Bus as BusIcon } from "lucide-react";
 import { getPublicRuntimeEnv, getSetupStatus } from "@/lib/config/env";
 import type { Bus, BusLocation } from "@/types/models";
 import type { FleetBus } from "@/hooks/use-fleet-state";
+import type { PeerLocation } from "@/hooks/use-peer-locations";
 import { useAppStore } from "@/lib/store/app-store";
 
 type BusMapProps = {
   bus: Bus;
   busLocation: BusLocation | null;
   fleet?: FleetBus[];
+  peers?: PeerLocation[];
 };
 
 function MapCentering({ 
@@ -38,7 +40,7 @@ function MapCentering({
   return null;
 }
 
-export function BusMap({ bus, busLocation, fleet = [] }: BusMapProps) {
+export function BusMap({ bus, busLocation, fleet = [], peers = [] }: BusMapProps) {
   const [userLocation, setUserLocation] = useState<{ lat: number; lng: number } | null>(null);
   
   const mapType = useAppStore((state) => state.mapType);
@@ -120,16 +122,32 @@ export function BusMap({ bus, busLocation, fleet = [] }: BusMapProps) {
             </AdvancedMarker>
           ))}
 
+          {/* Your own location — blue dot */}
           {userLocation && (
             <AdvancedMarker 
               position={userLocation} 
               title="Your Location"
+              zIndex={100}
             >
               <div className="w-4 h-4 rounded-full bg-blue-500 border-2 border-white shadow-md relative">
                 <div className="absolute inset-0 rounded-full bg-blue-400 animate-ping opacity-75"></div>
               </div>
             </AdvancedMarker>
           )}
+
+          {/* Peer locations — green dots for others on the same bus */}
+          {peers.map((peer) => (
+            <AdvancedMarker
+              key={peer.uid}
+              position={{ lat: peer.lat, lng: peer.lng }}
+              title="Fellow passenger"
+              zIndex={90}
+            >
+              <div className="w-4 h-4 rounded-full bg-emerald-400 border-2 border-white shadow-md relative">
+                <div className="absolute inset-0 rounded-full bg-emerald-300 animate-ping opacity-75"></div>
+              </div>
+            </AdvancedMarker>
+          ))}
 
           <MapCentering 
             userLocation={userLocation} 
