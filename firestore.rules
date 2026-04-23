@@ -1,6 +1,7 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
+
     function isSignedIn() {
       return request.auth != null;
     }
@@ -9,46 +10,76 @@ service cloud.firestore {
       return isSignedIn() && request.auth.token.role == 'admin';
     }
 
-    // Students can read only their own profile document. Writes are blocked by default.
+    // Tier helper: God Mode (tier 2) can read any bus data.
+    function isGodMode() {
+      return isSignedIn() && request.auth.token.tier == 'god';
+    }
+
+    // Returns the routeId stored on the authenticated user's student profile.
+    // Used to enforce Base-Tier users can only see their own route.
+    function studentRouteId() {
+      return get(/databases/$(database)/documents/students/$(request.auth.uid)).data.routeId;
+    }
+
+    // ── Students ────────────────────────────────────────────────────────────
+    // Each student can only read their own document. No direct writes allowed.
     match /students/{studentId} {
       allow read: if isAdmin() || (isSignedIn() && resource.data.uid == request.auth.uid);
       allow write: if false;
     }
 
-    // Bus, route and stop canonical documents are readable by authenticated users.
-    // TODO: tighten read visibility by assigned bus and linked parent context via trusted backend.
+    // ── Buses ────────────────────────────────────────────────────────────────
+    // God Mode: can read all buses.
+    // Base Tier: can only read the bus whose routeId matches their assigned route.
     match /buses/{busId} {
-      allow read: if isSignedIn();
+      allow read: if isAdmin()
+        || isGodMode()
+        || (isSignedIn() && resource.data.routeId == studentRouteId());
       allow write: if isAdmin();
     }
 
+    // ── Routes ───────────────────────────────────────────────────────────────
+    // Same read policy as buses, scoped to student's own route.
     match /routes/{routeId} {
-      allow read: if isSignedIn();
+      allow read: if isAdmin()
+        || isGodMode()
+        || (isSignedIn() && routeId == studentRouteId());
       allow write: if isAdmin();
     }
 
+    // ── Stops ────────────────────────────────────────────────────────────────
     match /stops/{stopId} {
-      allow read: if isSignedIn();
+      allow read: if isAdmin()
+        || isGodMode()
+        || (isSignedIn() && resource.data.routeId == studentRouteId());
       allow write: if isAdmin();
     }
 
+    // ── Colleges ─────────────────────────────────────────────────────────────
     match /colleges/{collegeId} {
       allow read: if isSignedIn();
       allow write: if isAdmin();
     }
 
-    // Parent links are sensitive and should be accessed via app-controlled logic.
+    // ── Parent links — sensitive; backend-only ────────────────────────────────
     match /parentLinks/{parentLinkId} {
-      allow read: if isAdmin();
+      allow read:  if isAdmin() || (isSignedIn() && resource.data.parentUid == request.auth.uid);
       allow write: if isAdmin();
     }
 
+    // ── Subscriptions ─────────────────────────────────────────────────────────
     match /subscriptions/{subscriptionId} {
-      allow read: if isAdmin();
+      allow read:  if isAdmin() || (isSignedIn() && resource.data.uid == request.auth.uid);
       allow write: if isAdmin();
     }
 
-    // Conservative default for all other collections.
+    // ── Sessions (1-device enforcement) ───────────────────────────────────────
+    // Clients can read their own session token; only they can write it.
+    match /sessions/{uid} {
+      allow read, write: if isSignedIn() && request.auth.uid == uid;
+    }
+
+    // ── Conservative default ──────────────────────────────────────────────────
     match /{document=**} {
       allow read, write: if false;
     }

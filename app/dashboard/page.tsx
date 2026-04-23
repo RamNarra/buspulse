@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo } from "react";
+import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { Bus, LogOut, Settings, Loader2, Navigation, Activity, Clock } from "lucide-react";
 
@@ -10,8 +10,7 @@ import { useCurrentBusState } from "@/hooks/use-current-bus-state";
 import { useCurrentStudentProfile } from "@/hooks/use-current-student-profile";
 import { useCrowdsourceTracking } from "@/hooks/use-crowdsource-tracking";
 import { useFleetState } from "@/hooks/use-fleet-state";
-import { usePeerLocations } from "@/hooks/use-peer-locations";
-import { mockBus, mockStudent, mockRoute } from "@/lib/mock/fixtures";
+import { mockBus, mockStudent } from "@/lib/mock/fixtures";
 import { useAppStore } from "@/lib/store/app-store";
 
 export default function DashboardPage() {
@@ -22,7 +21,7 @@ export default function DashboardPage() {
     useCurrentStudentProfile(user);
 
   // Initialize the crowdsourced fleet tracking system
-  const { trackingState } = useCrowdsourceTracking();
+  const { trackingState, isLeader } = useCrowdsourceTracking();
   const { fleet } = useFleetState();
 
   useEffect(() => {
@@ -39,8 +38,6 @@ export default function DashboardPage() {
 
   const busId = effectiveStudent.busId ?? mockBus.id;
   const busState = useCurrentBusState({ busId });
-  // Subscribe to other people on the same bus (the green dots)
-  const { peers } = usePeerLocations(busId, user?.uid);
 
   if ((mode === "live" && authLoading) || studentLoading || busState.isLoading) {
     return (
@@ -66,7 +63,7 @@ export default function DashboardPage() {
       
       {/* Map Layer (Background) */}
       <div className="absolute inset-0 z-0">
-        <BusMap bus={busState.bus ?? mockBus} busLocation={busState.location} fleet={fleet} peers={peers} />
+        <BusMap bus={busState.bus ?? mockBus} busLocation={busState.location} fleet={fleet} />
         {/* Subtle Map Overlay Gradient */}
         <div className="absolute inset-0 bg-gradient-to-b from-slate-950/40 via-transparent to-slate-950/80 pointer-events-none" />
       </div>
@@ -81,11 +78,16 @@ export default function DashboardPage() {
             <div>
               <h1 className="text-lg font-bold text-white leading-tight tracking-tight">BusPulse</h1>
               <div className="flex items-center gap-1.5">
-                <span className={`w-1.5 h-1.5 rounded-full ${mode === "live" ? "bg-emerald-400 animate-pulse" : "bg-amber-400"}`} />
-                <span className="text-[10px] font-bold text-slate-300 uppercase tracking-widest">{mode} Mode</span>
+                <span className={`w-1.5 h-1.5 rounded-full ${trackingState === "BOARDED" ? "bg-emerald-400 animate-pulse" : trackingState === "WAITING" ? "bg-amber-400 animate-pulse" : "bg-slate-500"}`} />
+                <span className="text-[10px] font-bold text-slate-300 uppercase tracking-widest">
+                  {trackingState === "BOARDED"
+                    ? isLeader ? "GPS Leader" : "GPS Synced"
+                    : trackingState === "WAITING" ? "Waiting" : "Idle"}
+                </span>
               </div>
             </div>
           </div>
+
           
           <div className="relative">
             <button

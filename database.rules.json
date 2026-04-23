@@ -1,40 +1,59 @@
 {
   "rules": {
+    ".read": false,
+    ".write": false,
+
     "presence": {
       "$uid": {
-        ".read": "auth != null && auth.uid === $uid",
+        ".read":  "auth != null && auth.uid === $uid",
         ".write": "auth != null && auth.uid === $uid"
       }
     },
+
     "trackerCandidates": {
       "$busId": {
         "$uid": {
-          ".read": "auth != null && auth.uid === $uid",
+          ".read":  "auth != null",
           ".write": "auth != null && auth.uid === $uid"
         }
       }
     },
+
+    "approachingStudents": {
+      "$busId": {
+        "$uid": {
+          ".read":  "auth != null",
+          ".write": "auth != null && auth.uid === $uid"
+        }
+      }
+    },
+
     "trackerAssignments": {
       "$busId": {
-        ".read": "auth != null",
-        ".write": false
+        ".read":  "auth != null",
+        ".write": "auth != null"
       }
     },
+
     "busLocations": {
       "$busId": {
-        ".read": "auth != null",
-        ".write": false
+        ".read":  "auth != null",
+        ".write": "auth != null"
       }
     },
+
     "busHealth": {
       "$busId": {
-        ".read": "auth != null",
-        ".write": false
+        ".read":  "auth != null",
+        ".write": "auth != null"
       }
     },
-    "$other": {
-      ".read": false,
-      ".write": false
+
+    "sessions": {
+      "$uid": {
+        ".read":  "auth != null && auth.uid === $uid",
+        ".write": "auth != null && auth.uid === $uid"
+      }
     }
   }
 }
