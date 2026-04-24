@@ -60,3 +60,18 @@
 - `visible` flag in RTDB candidate allows future leader election code to prefer visible-tab users over hidden-tab users
 
 **Verification:** `npm run validate` → Exit code 0. `npx vercel --prod --yes` → Deployed to https://buspulse-livid.vercel.app (commit: cf7a7a0)
+
+---
+
+## Entry 3 — Production Hardening Phase 2.1
+
+**Timestamp:** 2026-04-24T17:05:00Z
+
+**Objective:** Reduce mutual discovery threshold to 2 students and enable discovery between WAITING peers.
+
+**Files Modified:**
+- `hooks/use-crowdsource-tracking.ts` — Updated mirror logic to include `approachingStudents` (WAITING). Now peers in the waiting state can discover each other to trigger the BOARDED transition together when moving. Strictly enforced `MUTUAL_DISCOVERY_PEERS = 2`.
+
+**Key Logic Decisions:**
+- Previously, discovery only worked against already BOARDED peers. Now, two WAITING students walking/driving together will both discover each other and transition to BOARDED simultaneously once they hit the speed threshold.
+- Combined `trackerCandidates` and `approachingStudents` into a single `peersRef` for unified proximity checking.

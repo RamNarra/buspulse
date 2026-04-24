@@ -121,49 +121,65 @@ export function useCrowdsourceTracking(busStops: BusStop[] = []) {
     const boardedRef = ref(db, `trackerCandidates/${busId}/${uid}`);
     const leaderRef = ref(db, `trackerAssignments/${busId}/leader`);
     const candidatesRef = ref(db, `trackerCandidates/${busId}`);
+    const othersWaitingRef = ref(db, `approachingStudents/${busId}`);
 
     // Automatically clean up on disconnect
     onDisconnect(waitingRef).remove();
     onDisconnect(boardedRef).remove();
 
-    // ── 1. Mirror peer pings + bus centroid ─────────────────────────────────
-    const unsubCandidates = onValue(candidatesRef, (snapshot) => {
-      if (!snapshot.exists()) {
-        busLocationRef.current = null;
-        peersRef.current = {};
-        setPeerCount(0);
-        return;
-      }
-
-      const raw = snapshot.val() as Record<string, Partial<PeerPing>>;
+    // ── 1. Mirror peer pings (Both Boarded and Waiting) ─────────────────────
+    const syncPeers = (
+      boarded: Record<string, Partial<PeerPing>>, 
+      waiting: Record<string, Partial<PeerPing>>
+    ) => {
       const now = Date.now();
-      let tLat = 0, tLng = 0, n = 0, latest = 0;
-      const activePeers: Record<string, PeerPing> = {};
+      const combined: Record<string, PeerPing> = {};
+      let tLat = 0, tLng = 0, nBoarded = 0, latest = 0;
 
-      for (const id in raw) {
-        if (id === uid) continue;
-        const c = raw[id];
-        if (
-          typeof c.lat === "number" && typeof c.lng === "number" &&
-          typeof c.updatedAt === "number" && now - c.updatedAt < STALE_PING_MS
-        ) {
-          const ping: PeerPing = {
-            lat: c.lat, lng: c.lng,
-            speed: c.speed ?? 0,
-            updatedAt: c.updatedAt,
-            visible: c.visible ?? true,
-          };
-          activePeers[id] = ping;
-          tLat += c.lat; tLng += c.lng; n++;
-          if (c.updatedAt > latest) latest = c.updatedAt;
+      const processNode = (nodes: Record<string, Partial<PeerPing>>, isBoarded: boolean) => {
+        for (const id in nodes) {
+          if (id === uid) continue;
+          const c = nodes[id];
+          if (
+            typeof c.lat === "number" && typeof c.lng === "number" &&
+            typeof c.updatedAt === "number" && now - c.updatedAt < STALE_PING_MS
+          ) {
+            const ping: PeerPing = {
+              lat: c.lat, lng: c.lng,
+              speed: c.speed ?? 0,
+              updatedAt: c.updatedAt,
+              visible: c.visible ?? true,
+            };
+            combined[id] = ping;
+            if (isBoarded) {
+              tLat += c.lat; tLng += c.lng; nBoarded++;
+              if (c.updatedAt > latest) latest = c.updatedAt;
+            }
+          }
         }
-      }
+      };
 
-      peersRef.current = activePeers;
-      setPeerCount(n);
-      busLocationRef.current = n > 0
-        ? { lat: tLat / n, lng: tLng / n, ts: latest }
+      processNode(boarded, true);
+      processNode(waiting, false);
+
+      peersRef.current = combined;
+      setPeerCount(Object.keys(combined).length);
+      busLocationRef.current = nBoarded > 0
+        ? { lat: tLat / nBoarded, lng: tLng / nBoarded, ts: latest }
         : null;
+    };
+
+    let lastBoarded: Record<string, Partial<PeerPing>> = {};
+    let lastWaiting: Record<string, Partial<PeerPing>> = {};
+
+    const unsubCandidates = onValue(candidatesRef, (snapshot) => {
+      lastBoarded = snapshot.exists() ? snapshot.val() : {};
+      syncPeers(lastBoarded, lastWaiting);
+    });
+
+    const unsubOthersWaiting = onValue(othersWaitingRef, (snapshot) => {
+      lastWaiting = snapshot.exists() ? snapshot.val() : {};
+      syncPeers(lastBoarded, lastWaiting);
     });
 
     // ── 2. Leader watcher ───────────────────────────────────────────────────
@@ -336,6 +352,7 @@ export function useCrowdsourceTracking(busStops: BusStop[] = []) {
       navigator.geolocation.clearWatch(watchId);
       document.removeEventListener("visibilitychange", onVisibilityChange);
       unsubCandidates();
+      unsubOthersWaiting();
       unsubLeader();
       void remove(waitingRef);
       void remove(boardedRef);
