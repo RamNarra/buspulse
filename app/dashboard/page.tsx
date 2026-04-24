@@ -2,7 +2,7 @@
 
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { Bus, LogOut, Settings, Loader2, Navigation, Activity, Clock } from "lucide-react";
+import { Bus, LogOut, Settings, Loader2, Navigation, Activity, Clock, Zap, Radio } from "lucide-react";
 
 import { BusMap } from "@/components/map/bus-map";
 import { useAuthSession } from "@/hooks/use-auth-session";
@@ -20,8 +20,7 @@ export default function DashboardPage() {
   const { student, error: studentError, isLoading: studentLoading } =
     useCurrentStudentProfile(user);
 
-  // Initialize the crowdsourced fleet tracking system
-  const { trackingState, isLeader } = useCrowdsourceTracking();
+  const { trackingState, isLeader, peerCount } = useCrowdsourceTracking();
   const { fleet } = useFleetState();
 
   useEffect(() => {
@@ -38,6 +37,10 @@ export default function DashboardPage() {
 
   const busId = effectiveStudent.busId ?? mockBus.id;
   const busState = useCurrentBusState({ busId });
+
+  // Total students being served by this user's signal (all pingers on their route)
+  const myRouteBus = fleet.find((b) => b.routeNumber === busId);
+  const studentsRelying = myRouteBus ? myRouteBus.activePingers - 1 : 0; // minus self
 
   if ((mode === "live" && authLoading) || studentLoading || busState.isLoading) {
     return (
@@ -60,7 +63,7 @@ export default function DashboardPage() {
 
   return (
     <div className="h-[100dvh] w-full flex flex-col relative bg-slate-900 overflow-hidden font-sans">
-      
+
       {/* Map Layer (Background) */}
       <div className="absolute inset-0 z-0">
         <BusMap bus={busState.bus ?? mockBus} busLocation={busState.location} fleet={fleet} />
@@ -72,13 +75,19 @@ export default function DashboardPage() {
       <header className="absolute top-4 left-4 right-4 sm:top-6 sm:left-6 sm:right-6 z-40">
         <div className="mx-auto max-w-5xl flex items-center justify-between bg-slate-950/70 backdrop-blur-xl border border-white/10 px-4 sm:px-6 py-3 rounded-3xl shadow-2xl">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-gradient-to-br from-indigo-500 to-fuchsia-600 rounded-xl flex items-center justify-center shadow-inner">
-              <Bus className="w-5 h-5 text-white" />
+            <div className={`w-10 h-10 rounded-xl flex items-center justify-center shadow-inner transition-all duration-500 ${isLeader ? "bg-gradient-to-br from-emerald-400 to-teal-500 shadow-emerald-500/40" : "bg-gradient-to-br from-indigo-500 to-fuchsia-600"}`}>
+              {isLeader ? <Radio className="w-5 h-5 text-white animate-pulse" /> : <Bus className="w-5 h-5 text-white" />}
             </div>
             <div>
               <h1 className="text-lg font-bold text-white leading-tight tracking-tight">BusPulse</h1>
               <div className="flex items-center gap-1.5">
-                <span className={`w-1.5 h-1.5 rounded-full ${trackingState === "BOARDED" ? "bg-emerald-400 animate-pulse" : trackingState === "WAITING" ? "bg-amber-400 animate-pulse" : "bg-slate-500"}`} />
+                <span className={`w-1.5 h-1.5 rounded-full ${
+                  trackingState === "BOARDED"
+                    ? "bg-emerald-400 animate-pulse"
+                    : trackingState === "WAITING"
+                    ? "bg-amber-400 animate-pulse"
+                    : "bg-slate-500"
+                }`} />
                 <span className="text-[10px] font-bold text-slate-300 uppercase tracking-widest">
                   {trackingState === "BOARDED"
                     ? isLeader ? "GPS Leader" : "GPS Synced"
@@ -88,7 +97,6 @@ export default function DashboardPage() {
             </div>
           </div>
 
-          
           <div className="relative">
             <button
               onClick={toggleMenu}
@@ -96,7 +104,7 @@ export default function DashboardPage() {
             >
               {accountInitial}
             </button>
-            
+
             {isMenuOpen && (
               <>
                 <div className="fixed inset-0 z-40" onClick={() => setMenuOpen(false)} />
@@ -107,25 +115,19 @@ export default function DashboardPage() {
                       <span className="px-2 py-0.5 rounded-md bg-indigo-500/20 text-indigo-400 text-[10px] font-bold uppercase tracking-wider">Student</span>
                     </div>
                   </div>
-                  
+
                   <div className="p-2 space-y-1">
                     <button
-                      onClick={() => {
-                        setMenuOpen(false);
-                        router.push("/settings");
-                      }}
+                      onClick={() => { setMenuOpen(false); router.push("/settings"); }}
                       className="w-full text-left px-4 py-2.5 rounded-xl flex items-center gap-3 text-sm font-medium text-slate-300 hover:text-white hover:bg-white/10 transition-colors"
                     >
                       <Settings className="w-4 h-4 text-slate-400" />
                       Preferences
                     </button>
-                    
+
                     {user && (
                       <button
-                        onClick={() => {
-                          setMenuOpen(false);
-                          void signOut();
-                        }}
+                        onClick={() => { setMenuOpen(false); void signOut(); }}
                         className="w-full text-left px-4 py-2.5 rounded-xl flex items-center gap-3 text-sm font-medium text-red-400 hover:text-red-300 hover:bg-red-500/10 transition-colors"
                       >
                         <LogOut className="w-4 h-4" />
@@ -140,13 +142,36 @@ export default function DashboardPage() {
         </div>
       </header>
 
+      {/* ── HERO LEADER BANNER ────────────────────────────────────────────────── */}
+      {isLeader && trackingState === "BOARDED" && (
+        <div className="absolute top-24 left-4 right-4 sm:left-6 sm:right-6 z-30">
+          <div className="mx-auto max-w-5xl">
+            <div className="bg-emerald-500/15 backdrop-blur-md border border-emerald-500/30 rounded-2xl px-4 py-3 flex items-center gap-3 shadow-lg shadow-emerald-900/20 animate-pulse-slow">
+              <div className="w-8 h-8 rounded-full bg-emerald-500/20 flex items-center justify-center flex-shrink-0">
+                <Zap className="w-4 h-4 text-emerald-400" />
+              </div>
+              <div className="min-w-0">
+                <p className="text-xs font-black text-emerald-300 uppercase tracking-widest">
+                  🟢 You are powering the radar!
+                </p>
+                <p className="text-[11px] text-emerald-400/80 font-medium mt-0.5">
+                  {studentsRelying > 0
+                    ? `${studentsRelying} student${studentsRelying === 1 ? "" : "s"} on Route ${busId} are relying on your signal.`
+                    : `Keep your screen on — you are the sole GPS source for Route ${busId}.`}
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Floating Bottom Info Card */}
       <div className="absolute bottom-6 left-4 right-4 sm:left-auto sm:right-6 sm:w-[420px] z-20 flex flex-col gap-4">
-        
+
         {/* Crowdsourced Contribution Badge */}
         <div className="self-end mr-2">
           <div className="bg-slate-950/80 backdrop-blur-md border border-white/10 px-4 py-2 rounded-full flex items-center gap-2.5 shadow-xl">
-            <span className={`relative flex h-2.5 w-2.5`}>
+            <span className="relative flex h-2.5 w-2.5">
               {trackingState !== "IDLE" && (
                 <span className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${trackingState === "BOARDED" ? "bg-emerald-400" : "bg-amber-400"}`}></span>
               )}
@@ -161,30 +186,50 @@ export default function DashboardPage() {
         {/* Main Status Card */}
         <div className="bg-slate-900/80 backdrop-blur-2xl rounded-[2rem] border border-white/10 p-1 shadow-2xl overflow-hidden relative">
           <div className="absolute inset-0 bg-gradient-to-br from-indigo-500/10 to-fuchsia-500/10 pointer-events-none" />
-          
+
           <div className="bg-slate-950/50 rounded-[1.8rem] p-5 relative z-10">
             <div className="flex items-start justify-between mb-5">
               <div>
                 <h2 className="text-3xl font-black text-transparent bg-clip-text bg-gradient-to-r from-white to-slate-400 tracking-tight mb-1">
                   {busState.bus?.code ?? mockBus.code}
                 </h2>
-              <div className="flex items-center gap-2 text-sm font-medium text-slate-400">
+                <div className="flex items-center gap-2 text-sm font-medium text-slate-400">
                   <Navigation className="w-4 h-4 text-indigo-400" />
                   Route {busId}
                 </div>
               </div>
-              
+
               <div className={`px-3 py-1.5 rounded-xl border flex items-center gap-2 ${fleet.length > 0 ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-400" : "bg-slate-800 border-slate-700 text-slate-400"}`}>
                 {fleet.length > 0 && <Activity className="w-4 h-4 animate-pulse" />}
-                <span className="text-xs font-bold uppercase tracking-wider">{fleet.length > 0 ? "Fleet Live" : "No Signals"}</span>
+                <span className="text-xs font-bold uppercase tracking-wider">
+                  {fleet.length > 0 ? `${fleet.length} Bus${fleet.length > 1 ? "es" : ""} Live` : "No Signals"}
+                </span>
               </div>
             </div>
 
+            {/* Peer count + consensus status */}
             <div className="bg-white/5 rounded-2xl p-4 border border-white/5 mb-4">
-              <p className="text-sm text-white font-medium flex items-center gap-2">
-                <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 animate-pulse" />
-                Fleet Overview Active. Tracking {fleet.length} buses nearby.
-              </p>
+              {trackingState === "BOARDED" && peerCount > 0 ? (
+                <p className="text-sm text-white font-medium flex items-center gap-2">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                  Bus consensus: {peerCount + 1} people forming Route {busId} location.
+                </p>
+              ) : trackingState === "WAITING" ? (
+                <p className="text-sm text-amber-300 font-medium flex items-center gap-2">
+                  <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
+                  Waiting to board — searching for nearby passengers.
+                </p>
+              ) : (
+                <p className="text-sm text-white font-medium flex items-center gap-2">
+                  <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 animate-pulse" />
+                  Fleet Overview Active. Tracking {fleet.length} bus{fleet.length !== 1 ? "es" : ""} nearby.
+                </p>
+              )}
+              {fleet.some((b) => b.estimated) && (
+                <p className="text-[11px] text-amber-400/70 font-medium mt-2">
+                  ⚠️ Some buses showing estimated positions — signal temporarily lost.
+                </p>
+              )}
             </div>
 
             <div className="flex items-center justify-between px-1">
@@ -192,7 +237,7 @@ export default function DashboardPage() {
                 <Clock className="w-3.5 h-3.5" />
                 Active network sync
               </div>
-              
+
               <div className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-indigo-400 bg-indigo-500/10 px-2.5 py-1 rounded-lg">
                 {fleet.reduce((acc, b) => acc + b.activePingers, 0)} Total Pingers
               </div>

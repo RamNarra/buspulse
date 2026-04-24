@@ -109,11 +109,11 @@ export function BusMap({ bus, busLocation, fleet = [] }: BusMapProps) {
               title={`Route ${fleetBus.routeNumber}`}
               zIndex={50}
             >
-              <div className="relative group">
+              <div className="relative group" style={{ opacity: fleetBus.estimated ? 0.5 : 1, transition: "opacity 0.5s" }}>
                 <div className="absolute -top-6 left-1/2 -translate-x-1/2 bg-slate-900 text-white text-xs font-bold px-2 py-1 rounded shadow-lg whitespace-nowrap">
-                  Route {fleetBus.routeNumber}
+                  Route {fleetBus.routeNumber}{fleetBus.estimated ? " ~" : ""}
                 </div>
-                <div className={`text-slate-900 rounded-xl p-2 shadow-xl border-2 border-white ${fleetBus.routeNumber === bus.code ? 'bg-indigo-400' : 'bg-amber-400'}`}>
+                <div className={`text-slate-900 rounded-xl p-2 shadow-xl border-2 ${fleetBus.estimated ? "border-dashed border-amber-400/60" : "border-white"} ${fleetBus.routeNumber === bus.code ? "bg-indigo-400" : "bg-amber-400"}`}>
                   <BusIcon className="w-5 h-5" />
                 </div>
               </div>

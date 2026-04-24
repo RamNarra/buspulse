@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { JetBrains_Mono, Space_Grotesk } from "next/font/google";
 
 import "./globals.css";
@@ -14,9 +14,26 @@ const jetBrainsMono = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "BusPulse",
+  title: "BusPulse — Live Bus Tracker",
   description:
-    "Live bus tracking MVP for engineering colleges using Firebase canonical + realtime layers.",
+    "Real-time crowdsourced bus tracking for SNIST students. Know where your bus is, without any hardware on the bus.",
+  manifest: "/manifest.json",
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: "black-translucent",
+    title: "BusPulse",
+  },
+  other: {
+    "mobile-web-app-capable": "yes",
+  },
+};
+
+export const viewport: Viewport = {
+  themeColor: "#6366f1",
+  width: "device-width",
+  initialScale: 1,
+  maximumScale: 1,
+  userScalable: false,
 };
 
 import { AuthProvider } from "@/components/auth/auth-provider";
@@ -31,6 +48,13 @@ export default function RootLayout({
       lang="en"
       className={`${spaceGrotesk.variable} ${jetBrainsMono.variable} h-full antialiased`}
     >
+      <head>
+        <link rel="manifest" href="/manifest.json" />
+        <link rel="apple-touch-icon" href="/icon-192.png" />
+        <meta name="apple-mobile-web-app-capable" content="yes" />
+        <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+        <meta name="theme-color" content="#6366f1" />
+      </head>
       <body className="min-h-full">
         <AuthProvider>
           {children}
