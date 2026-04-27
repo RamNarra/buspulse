@@ -88,6 +88,9 @@ export function useCrowdsourceTracking(busStops: BusStop[] = []) {
   const trackingStateRef = useRef<TrackingState>("IDLE");
   const isLeaderRef = useRef(false);
   const wakeLockRef = useRef<WakeLockSentinel | null>(null);
+  
+  // Ephemeral UUID for pseudo-anonymous tracking
+  const opaqueIdRef = useRef<string | null>(null);
 
   // ── Wake Lock helpers ──────────────────────────────────────────────────────
   async function acquireWakeLock() {
@@ -116,9 +119,19 @@ export function useCrowdsourceTracking(busStops: BusStop[] = []) {
     const busId = student.busId;
     const uid = user.uid;
 
+    if (!opaqueIdRef.current) {
+      opaqueIdRef.current = crypto.randomUUID();
+    }
+    const opaqueId = opaqueIdRef.current;
+
+    // Register opaque ID mapping
+    const mappingRef = ref(db, `trackerMappings/${opaqueId}`);
+    void set(mappingRef, { uid });
+    onDisconnect(mappingRef).remove();
+
     // Firebase node refs
-    const waitingRef = ref(db, `approachingStudents/${busId}/${uid}`);
-    const boardedRef = ref(db, `trackerCandidates/${busId}/${uid}`);
+    const waitingRef = ref(db, `approachingStudents/${busId}/${opaqueId}`);
+    const boardedRef = ref(db, `trackerCandidates/${busId}/${opaqueId}`);
     const leaderRef = ref(db, `trackerAssignments/${busId}/leader`);
     const candidatesRef = ref(db, `trackerCandidates/${busId}`);
     const othersWaitingRef = ref(db, `approachingStudents/${busId}`);
@@ -138,7 +151,7 @@ export function useCrowdsourceTracking(busStops: BusStop[] = []) {
 
       const processNode = (nodes: Record<string, Partial<PeerPing>>, isBoarded: boolean) => {
         for (const id in nodes) {
-          if (id === uid) continue;
+          if (id === opaqueId) continue;
           const c = nodes[id];
           if (
             typeof c.lat === "number" && typeof c.lng === "number" &&
@@ -185,7 +198,7 @@ export function useCrowdsourceTracking(busStops: BusStop[] = []) {
     // ── 2. Leader watcher ───────────────────────────────────────────────────
     const unsubLeader = onValue(leaderRef, (snapshot) => {
       const current = snapshot.val() as { uid?: string; ts?: number } | null;
-      const amLeader = current?.uid === uid;
+      const amLeader = current?.uid === opaqueId;
       isLeaderRef.current = amLeader;
       setIsLeader(amLeader);
 
@@ -204,10 +217,10 @@ export function useCrowdsourceTracking(busStops: BusStop[] = []) {
       await runTransaction(leaderRef, (current: { uid?: string; ts?: number } | null) => {
         const now = Date.now();
         if (!current?.uid || !current?.ts || now - current.ts > STALE_PING_MS) {
-          return { uid, ts: now }; // Claim — seat is empty or stale
+          return { uid: opaqueId, ts: now }; // Claim — seat is empty or stale
         }
-        if (current.uid === uid) {
-          return { uid, ts: now }; // Renew own lease
+        if (current.uid === opaqueId) {
+          return { uid: opaqueId, ts: now }; // Renew own lease
         }
         return current; // Another active leader — stand by
       });
@@ -215,7 +228,7 @@ export function useCrowdsourceTracking(busStops: BusStop[] = []) {
 
     async function yieldLeadership() {
       await runTransaction(leaderRef, (current: { uid?: string } | null) => {
-        return current?.uid === uid ? null : current;
+        return current?.uid === opaqueId ? null : current;
       });
     }
 

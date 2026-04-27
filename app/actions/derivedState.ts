@@ -1,10 +1,10 @@
 "use server";
 
 import { adminDb, adminAuth, adminFirestore } from "@/lib/firebase/admin";
-import { type BusLocation, type TrackerCandidate } from "@/types/models";
+import { type BusLocation, type BusHealth } from "@/types/models";
 import { realtimePaths } from "@/lib/firebase/realtime";
 
-export async function publishDriverLocation(busId: string, candidate: TrackerCandidate, idToken: string) {
+export async function publishDerivedState(busId: string, location: BusLocation, health: BusHealth, idToken: string) {
   if (!adminDb || !adminAuth || !adminFirestore) {
     console.warn("Firebase Admin SDK not initialized. Server Action is skipping RTDB write.");
     return { ok: false, error: "Server admin DB not initialized" };
@@ -14,10 +14,6 @@ export async function publishDriverLocation(busId: string, candidate: TrackerCan
     // 1. Verify the caller's ID token
     const decodedToken = await adminAuth.verifyIdToken(idToken);
     const userId = decodedToken.uid;
-
-    if (userId !== candidate.uid) {
-      return { ok: false, error: "Unauthorized: UID mismatch" };
-    }
 
     // 2. Authorize the caller against Firestore profile
     const callerProfile = await adminFirestore.collection('students').doc(userId).get();
@@ -30,24 +26,15 @@ export async function publishDriverLocation(busId: string, candidate: TrackerCan
       return { ok: false, error: "Unauthorized: Not assigned to this bus" };
     }
 
-    // 3. Transform candidate into a canonical BusLocation
-    const location: BusLocation = {
-      lat: candidate.lat,
-      lng: candidate.lng,
-      heading: candidate.heading,
-      speed: candidate.speed,
-      accuracy: candidate.accuracy,
-      updatedAt: candidate.submittedAt,
-      confidence: 1.0, // Trusted driver source
-      sourceCount: 1,
-      routeMatchScore: candidate.routeMatchScore,
-    };
-
-    await adminDb.ref(realtimePaths.busLocations(busId)).set(location);
+    // Atomically write both paths
+    await adminDb.ref().update({
+      [realtimePaths.busLocations(busId)]: location,
+      [realtimePaths.busHealth(busId)]: health,
+    });
+    
     return { ok: true };
   } catch (error: unknown) {
-    console.error("Failed to write to admin DB:", error);
+    console.error("Failed to write derived state to admin DB:", error);
     return { ok: false, error: error instanceof Error ? error.message : "Unknown error" };
   }
 }
-

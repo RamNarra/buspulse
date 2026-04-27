@@ -10,22 +10,27 @@
       }
     },
 
+    "trackerMappings": {
+      "$uuid": {
+        ".read":  "auth != null && data.child('uid').val() === auth.uid",
+        ".write": "auth != null && (!data.exists() || data.child('uid').val() === auth.uid) && newData.child('uid').val() === auth.uid"
+      }
+    },
+
     "trackerCandidates": {
       "$busId": {
-        // Anyone authenticated can see who is on a bus to calculate centroids
         ".read": "auth != null",
-        "$uid": {
-          ".write": "auth != null && auth.uid === $uid"
+        "$uuid": {
+          ".write": "auth != null && root.child('trackerMappings').child($uuid).child('uid').val() === auth.uid"
         }
       }
     },
 
     "approachingStudents": {
       "$busId": {
-        // Anyone authenticated can see who is waiting to enable mutual discovery
         ".read": "auth != null",
-        "$uid": {
-          ".write": "auth != null && auth.uid === $uid"
+        "$uuid": {
+          ".write": "auth != null && root.child('trackerMappings').child($uuid).child('uid').val() === auth.uid"
         }
       }
     },
@@ -33,21 +38,23 @@
     "trackerAssignments": {
       "$busId": {
         ".read":  "auth != null",
-        ".write": "auth != null"
+        "leader": {
+          ".write": "auth != null"
+        }
       }
     },
 
     "busLocations": {
       "$busId": {
         ".read":  "auth != null",
-        ".write": "auth != null"
+        ".write": false
       }
     },
 
     "busHealth": {
       "$busId": {
         ".read":  "auth != null",
-        ".write": "auth != null"
+        ".write": false
       }
     },
 

@@ -3,7 +3,7 @@ import { z } from "zod";
 export const viewerRoleSchema = z.enum(["student", "parent", "admin"]);
 export type ViewerRole = z.infer<typeof viewerRoleSchema>;
 
-export const subscriptionTierSchema = z.enum(["free", "premium", "enterprise"]);
+export const subscriptionTierSchema = z.enum(["free", "god", "enterprise"]);
 export type SubscriptionTier = z.infer<typeof subscriptionTierSchema>;
 
 export const accessPolicySchema = z.object({

@@ -47,7 +47,7 @@ export function getVisibleBusIds(
     return [];
   }
 
-  if (context.tier === "premium" && context.policy?.allowedBusIds.length) {
+  if (context.tier === "god" && context.policy?.allowedBusIds.length) {
     return Array.from(new Set([ownBusId, ...context.policy.allowedBusIds]));
   }
 

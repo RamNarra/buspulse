@@ -116,7 +116,7 @@ export const mockParentLink: ParentLink = {
 export const mockSubscription: Subscription = {
   id: "sub-aurora",
   collegeId: mockCollege.id,
-  tier: "premium",
+  tier: "god",
   status: "active",
   seats: 2200,
   renewalAt: now + 1000 * 60 * 60 * 24 * 20,

@@ -5,6 +5,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { getDataSourceMode } from "@/lib/config/data-source";
 import { writePresenceHeartbeat } from "@/lib/firebase/realtime";
 import { publishDriverLocation } from "@/app/actions/driver";
+import { getCurrentAuthUser } from "@/lib/firebase/auth";
 
 type UseLocationContributionOptions = {
   uid: string;
@@ -71,10 +72,20 @@ export function useLocationContribution({
           source: "gps" as const,
         };
 
-        void publishDriverLocation(busId, candidate).then((result: { ok: boolean; error?: string }) => {
-          if (!result.ok) {
-            setError(result.error ?? "Unknown error");
-          }
+        const authUser = getCurrentAuthUser();
+        if (!authUser) {
+          setError("User not authenticated.");
+          return;
+        }
+
+        authUser.getIdToken().then((idToken) => {
+          void publishDriverLocation(busId, candidate, idToken).then((result: { ok: boolean; error?: string }) => {
+            if (!result.ok) {
+              setError(result.error ?? "Unknown error");
+            }
+          });
+        }).catch((err) => {
+          setError(err.message ?? "Failed to get ID token.");
         });
       },
       (geoError) => {
