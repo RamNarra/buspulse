@@ -152,12 +152,12 @@ export default function DashboardPage() {
               </div>
               <div className="min-w-0">
                 <p className="text-[10px] font-black text-emerald-300 uppercase tracking-widest">
-                  🟢 You are powering the radar for {busId}!
+                  🟢 Powering {busId} Radar (ID: {user?.uid.slice(-4)})
                 </p>
                 <p className="text-[9px] text-emerald-400/70 font-medium leading-tight">
                   {studentsRelying > 0
                     ? `${studentsRelying} other student${studentsRelying === 1 ? "" : "s"} on this route are relying on your signal.`
-                    : `Keep your screen on — you are the sole GPS source for this route.`}
+                    : `Keep screen on — you are the sole GPS source for this route.`}
                 </p>
               </div>
             </div>

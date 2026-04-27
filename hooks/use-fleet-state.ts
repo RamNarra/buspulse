@@ -16,7 +16,7 @@ export type FleetBus = {
 };
 
 /** Max age for a ping to be considered "fresh" */
-const STALE_MS = 30_000;
+const STALE_MS = 60_000;
 
 /**
  * If the bus hasn't received a fresh ping in this long, switch to dead
@@ -94,13 +94,16 @@ export function useFleetState() {
         const fresh: { lat: number; lng: number; updatedAt: number }[] = [];
         for (const uid in candidates) {
           const c = candidates[uid];
+          const isStale = typeof c.updatedAt === "number" && now - c.updatedAt > STALE_MS;
+          
           if (
             typeof c.lat === "number" &&
             typeof c.lng === "number" &&
-            typeof c.updatedAt === "number" &&
-            now - c.updatedAt < STALE_MS
+            !isStale
           ) {
-            fresh.push({ lat: c.lat, lng: c.lng, updatedAt: c.updatedAt });
+            fresh.push({ lat: c.lat, lng: c.lng, updatedAt: c.updatedAt as number });
+          } else if (isStale) {
+             console.warn(`[Fleet] Rejected stale ping from ${uid}. Age: ${(now - (c.updatedAt || 0))/1000}s`);
           }
         }
 

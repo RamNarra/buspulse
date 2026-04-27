@@ -335,13 +335,13 @@ export function useCrowdsourceTracking(busStops: BusStop[] = []) {
       if (newState === "BOARDED") {
         if (!lastBoardedAtRef.current) lastBoardedAtRef.current = Date.now();
         void set(boardedRef, {
-          lat, lng, speed: speedMs, visible, updatedAt: serverTimestamp(),
+          lat, lng, speed: speedMs, visible, updatedAt: Date.now(),
         });
         void remove(waitingRef);
         void tryClaimLeadership(visible);
       } else {
         lastBoardedAtRef.current = null;
-        void set(waitingRef, { lat, lng, speed: speedMs, updatedAt: serverTimestamp() });
+        void set(waitingRef, { lat, lng, speed: speedMs, updatedAt: Date.now() });
         void remove(boardedRef);
         void yieldLeadership();
       }
