@@ -22,6 +22,7 @@ function MapCentering({
 }) {
   const map = useMap();
   const hasCenteredOnUserRef = useRef(false);
+  const recenterTick = useAppStore((state) => state.recenterTick);
 
   useEffect(() => {
     if (!map) return;
@@ -29,11 +30,21 @@ function MapCentering({
     // @ts-expect-error Expose map for E2E tests
     window._test_mapCenter = map;
 
+    // Initial center on user once
     if (userLocation && !hasCenteredOnUserRef.current) {
       map.panTo(userLocation);
+      map.setZoom(15);
       hasCenteredOnUserRef.current = true;
     }
   }, [map, userLocation]);
+
+  // Handle manual recenter trigger
+  useEffect(() => {
+    if (map && userLocation && recenterTick > 0) {
+      map.panTo(userLocation);
+      map.setZoom(16);
+    }
+  }, [map, userLocation, recenterTick]);
 
   return null;
 }

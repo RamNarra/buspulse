@@ -12,8 +12,9 @@
 
     "trackerCandidates": {
       "$busId": {
+        // Anyone authenticated can see who is on a bus to calculate centroids
+        ".read": "auth != null",
         "$uid": {
-          ".read":  "auth != null",
           ".write": "auth != null && auth.uid === $uid"
         }
       }
@@ -21,8 +22,9 @@
 
     "approachingStudents": {
       "$busId": {
+        // Anyone authenticated can see who is waiting to enable mutual discovery
+        ".read": "auth != null",
         "$uid": {
-          ".read":  "auth != null",
           ".write": "auth != null && auth.uid === $uid"
         }
       }
