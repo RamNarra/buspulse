@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { getDatabase, ref, onValue } from "firebase/database";
 import { getFirebaseClientApp } from "@/lib/firebase/client";
-import { isLocationOutlier, haversineMeters } from "@/lib/utils/geo";
+import { haversineMeters } from "@/lib/utils/geo";
 
 export type FleetBus = {
   routeNumber: string;
@@ -40,22 +40,6 @@ type BusPhysics = {
   activePingers: number;
   routeNumber: string;
 };
-
-/**
- * Compute velocity vector from the two most recent clean pings of a route.
- * Returns degrees/ms in lat and lng.
- */
-function computeVelocity(
-  prev: { lat: number; lng: number; updatedAt: number },
-  next: { lat: number; lng: number; updatedAt: number },
-): { dlat_per_ms: number; dlng_per_ms: number } {
-  const dt = next.updatedAt - prev.updatedAt;
-  if (dt <= 0) return { dlat_per_ms: 0, dlng_per_ms: 0 };
-  return {
-    dlat_per_ms: (next.lat - prev.lat) / dt,
-    dlng_per_ms: (next.lng - prev.lng) / dt,
-  };
-}
 
 export function useFleetState() {
   const [fleet, setFleet] = useState<FleetBus[]>([]);
@@ -109,53 +93,50 @@ export function useFleetState() {
 
         if (fresh.length === 0) continue;
 
-        // Step 2: sort and remove outliers (teleport guard)
-        fresh.sort((a, b) => a.updatedAt - b.updatedAt);
-        const clean: typeof fresh = [fresh[0]];
-        for (let i = 1; i < fresh.length; i++) {
-          const prev = clean[clean.length - 1];
-          const cur = fresh[i];
-          if (!isLocationOutlier(prev.lat, prev.lng, prev.updatedAt, cur.lat, cur.lng, cur.updatedAt)) {
-            clean.push(cur);
-          }
-        }
-        if (clean.length === 0) continue;
-
-        // Step 3: average clean pings
+        // Step 2: Average clean pings (No inter-device outlier checks)
         let tLat = 0, tLng = 0, latest = 0;
-        for (const p of clean) {
+        for (const p of fresh) {
           tLat += p.lat; tLng += p.lng;
           if (p.updatedAt > latest) latest = p.updatedAt;
         }
-        const avgLat = tLat / clean.length;
-        const avgLng = tLng / clean.length;
+        const avgLat = tLat / fresh.length;
+        const avgLng = tLng / fresh.length;
 
-        // Step 4: compute velocity from the two most recent clean pings
-        let vel = { dlat_per_ms: 0, dlng_per_ms: 0 };
-        if (clean.length >= 2) {
-          vel = computeVelocity(clean[clean.length - 2], clean[clean.length - 1]);
+        // Step 3: compute velocity using previous centroid state, avoiding cross-user teleport logic
+        let dLat = 0, dLng = 0;
+        const prevPhys = physicsRef.current[routeNumber];
+        
+        if (prevPhys && prevPhys.updatedAt < latest) {
+          const dt = latest - prevPhys.updatedAt;
+          if (dt > 0) {
+            const vLat = (avgLat - prevPhys.lat) / dt;
+            const vLng = (avgLng - prevPhys.lng) / dt;
+            
+            // Step 4: sanity-check: ignore velocity if implied speed > 120 km/h
+            const distTest = haversineMeters(0, 0, vLat * 1000, vLng * 1000);
+            const speedMs = distTest / 1; // per ms → m/ms → * 1000 = m/s
+            if (speedMs < 33.3) {
+              dLat = vLat;
+              dLng = vLng;
+            }
+          }
         }
-
-        // Step 5: sanity-check: ignore velocity if implied speed > 120 km/h
-        const distTest = haversineMeters(0, 0, vel.dlat_per_ms * 1000, vel.dlng_per_ms * 1000);
-        const speedMs = distTest / 1; // per ms → m/ms → * 1000 = m/s
-        const validVelocity = speedMs < 33.3;
 
         nextPhysics[routeNumber] = {
           routeNumber,
           lat: avgLat,
           lng: avgLng,
-          dlat_per_ms: validVelocity ? vel.dlat_per_ms : 0,
-          dlng_per_ms: validVelocity ? vel.dlng_per_ms : 0,
+          dlat_per_ms: dLat,
+          dlng_per_ms: dLng,
           updatedAt: latest,
-          activePingers: clean.length,
+          activePingers: fresh.length,
         };
 
         liveFleet.push({
           routeNumber,
           lat: avgLat,
           lng: avgLng,
-          activePingers: clean.length,
+          activePingers: fresh.length,
           updatedAt: latest,
           estimated: false,
         });
