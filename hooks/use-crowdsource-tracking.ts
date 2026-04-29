@@ -88,7 +88,9 @@ export function useCrowdsourceTracking(busStops: BusStop[] = []) {
   const trackingStateRef = useRef<TrackingState>("IDLE");
   const isLeaderRef = useRef(false);
   const wakeLockRef = useRef<WakeLockSentinel | null>(null);
-  
+  const lastLeadershipRenewRef = useRef<number>(0);
+  const currentLeaderRef = useRef<{ uid?: string; ts?: number } | null>(null);
+
   // Ephemeral UUID for pseudo-anonymous tracking
   const opaqueIdRef = useRef<string | null>(null);
 
@@ -198,6 +200,7 @@ export function useCrowdsourceTracking(busStops: BusStop[] = []) {
     // ── 2. Leader watcher ───────────────────────────────────────────────────
     const unsubLeader = onValue(leaderRef, (snapshot) => {
       const current = snapshot.val() as { uid?: string; ts?: number } | null;
+      currentLeaderRef.current = current;
       const amLeader = current?.uid === opaqueId;
       isLeaderRef.current = amLeader;
       setIsLeader(amLeader);
@@ -214,15 +217,34 @@ export function useCrowdsourceTracking(busStops: BusStop[] = []) {
       if (trackingStateRef.current !== "BOARDED") return;
       if (!visible) return; // Don't claim if hidden — let a visible peer take over
 
-      await runTransaction(leaderRef, (current: { uid?: string; ts?: number } | null) => {
-        const now = Date.now();
-        if (!current?.uid || !current?.ts || now - current.ts > STALE_PING_MS) {
-          return { uid: opaqueId, ts: now }; // Claim — seat is empty or stale
+      const now = Date.now();
+      const current = currentLeaderRef.current;
+      const isAlreadyLeader = current?.uid === opaqueId;
+      const isStale = !current?.uid || !current?.ts || (now - current.ts > STALE_PING_MS);
+
+      // Only attempt a transaction if we genuinely believe we need to claim or renew
+      // Renew every 10 seconds if we are the leader
+      if (isAlreadyLeader && (now - lastLeadershipRenewRef.current < 10_000)) {
+        return;
+      }
+      
+      // If we are NOT the leader, only try to claim if the current one appears stale
+      if (!isAlreadyLeader && !isStale) {
+        return;
+      }
+
+      // Mark the attempt time so we don't spam transactions
+      lastLeadershipRenewRef.current = now;
+
+      await runTransaction(leaderRef, (currentTx: { uid?: string; ts?: number } | null) => {
+        const txNow = Date.now();
+        if (!currentTx?.uid || !currentTx?.ts || txNow - currentTx.ts > STALE_PING_MS) {
+          return { uid: opaqueId, ts: txNow }; // Claim — seat is empty or stale
         }
-        if (current.uid === opaqueId) {
-          return { uid: opaqueId, ts: now }; // Renew own lease
+        if (currentTx.uid === opaqueId) {
+          return { uid: opaqueId, ts: txNow }; // Renew own lease
         }
-        return current; // Another active leader — stand by
+        return currentTx; // Another active leader — stand by
       });
     }
 
