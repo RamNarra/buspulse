@@ -13,6 +13,7 @@ import type { BusHealth, BusLocation, TrackerCandidate } from "./models";
 
 export { detectAnomalies } from "./anomaly";
 export { exportBusLocationToBigQuery } from "./bigquery-export";
+export { notifyApproachingStudents } from "./fcm-notify";
 
 admin.initializeApp();
 const db = admin.database();

@@ -37,6 +37,7 @@ export const viewport: Viewport = {
 };
 
 import { AuthProvider } from "@/components/auth/auth-provider";
+import { FcmNotificationManager } from "@/components/FcmNotificationManager";
 import { PwaInstallPrompt } from "@/components/PwaInstallPrompt";
 import { ServiceWorkerRegistrar } from "@/components/ServiceWorkerRegistrar";
 
@@ -60,6 +61,7 @@ export default function RootLayout({
       <body className="min-h-full">
         <AuthProvider>
           <ServiceWorkerRegistrar />
+          <FcmNotificationManager />
           <PwaInstallPrompt />
           {children}
         </AuthProvider>

@@ -4,6 +4,7 @@
 // Only runs when the ROADS_API_KEY environment variable is configured.
 
 import * as admin from "firebase-admin";
+import { getSecret } from "./secrets";
 
 const SNAP_INTERVAL_MS = 5_000;
 const RING_BUFFER_SIZE = 10;
@@ -37,7 +38,7 @@ export async function maybeSnapToRoads(
   db: admin.database.Database,
   now: number,
 ): Promise<SnappedPoint[] | null> {
-  const apiKey = process.env.ROADS_API_KEY?.trim();
+  const apiKey = (await getSecret("ROADS_API_KEY"))?.trim();
   if (!apiKey) return null;
 
   const buf = ringBuffers[busId];
