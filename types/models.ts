@@ -52,6 +52,20 @@ export const parentLinkSchema = z.object({
 });
 export type ParentLink = z.infer<typeof parentLinkSchema>;
 
+export const parentInviteSchema = z.object({
+  code: z.string().length(6),
+  studentId: z.string().min(1),
+  collegeId: z.string().min(1),
+  relationship: z.enum(["mother", "father", "guardian", "other"]),
+  issuedBy: z.string().min(1),
+  expiresAt: z.number().int().positive(),
+  consumed: z.boolean().default(false),
+  consumedBy: z.string().optional(),
+  consumedAt: z.number().int().nonnegative().optional(),
+  createdAt: z.number().int().nonnegative(),
+});
+export type ParentInvite = z.infer<typeof parentInviteSchema>;
+
 export const busSchema = z.object({
   id: z.string().min(1),
   collegeId: z.string().min(1),
@@ -160,6 +174,8 @@ export const busHealthSchema = z.object({
   note: z.string().optional(),
 });
 export type BusHealth = z.infer<typeof busHealthSchema>;
+/** Union of all bus health status codes. */
+export type BusHealthStatus = BusHealth["status"];
 
 /** Snapped path written by the aggregator (Phase 2.2). */
 export const busPathSchema = z.object({

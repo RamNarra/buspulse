@@ -36,6 +36,7 @@ export function useInterpolatedPosition(
     }
 
     if (!target) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setPos(null);
       prevRef.current = null;
       return;

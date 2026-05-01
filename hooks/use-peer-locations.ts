@@ -29,6 +29,7 @@ export function usePeerLocations(
   useEffect(() => {
     // Privacy gate — non-leaders never subscribe to raw candidate positions.
     if (!isLeader || !busId) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setPeers([]);
       return;
     }

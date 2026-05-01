@@ -2,9 +2,11 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { Link2, LogOut, AlertCircle } from "lucide-react";
+import { Link2, LogOut, AlertCircle, CheckCircle2 } from "lucide-react";
 
 import { useAuthSession } from "@/hooks/use-auth-session";
+import { getAuth } from "firebase/auth";
+import { linkParent } from "@/app/actions/parent";
 
 export default function ParentPage() {
   const router = useRouter();
@@ -12,6 +14,7 @@ export default function ParentPage() {
   const [inviteCode, setInviteCode] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [linked, setLinked] = useState<{ studentId: string; busId: string } | null>(null);
 
   const handleLink = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -20,11 +23,30 @@ export default function ParentPage() {
     setIsLoading(true);
     setError(null);
 
-    // TODO Phase 3: replace with Server Action that verifies the invite code
-    // against Firestore `parentInvites/{code}` and creates the parentLinks doc.
-    await new Promise((resolve) => setTimeout(resolve, 400));
-    setIsLoading(false);
-    setError("Parent linking requires a valid invite code issued by your college admin. This feature is being rolled out — contact your college transport coordinator.");
+    try {
+      const auth = getAuth();
+      const currentUser = auth.currentUser;
+      if (!currentUser) {
+        setError("You must be signed in to link a student.");
+        setIsLoading(false);
+        return;
+      }
+
+      const idToken = await currentUser.getIdToken();
+      const result = await linkParent(inviteCode.trim().toUpperCase(), idToken);
+
+      if (!result.ok) {
+        setError(result.error);
+      } else {
+        setLinked({ studentId: result.studentId, busId: result.busId });
+        // Force token refresh so the new `role: parent` claim is picked up
+        await currentUser.getIdToken(true);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "An unexpected error occurred.");
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   return (
@@ -60,6 +82,22 @@ export default function ParentPage() {
               Enter the 6-digit secure code provided by your student&apos;s college to view their bus location.
             </p>
 
+            {linked ? (
+              <div className="flex flex-col items-center gap-4">
+                <div className="w-14 h-14 rounded-full bg-green-50 flex items-center justify-center">
+                  <CheckCircle2 className="w-7 h-7 text-green-600" />
+                </div>
+                <p className="text-center text-sm font-semibold text-slate-700">
+                  Successfully linked! You can now track bus <span className="font-mono text-blue-600">{linked.busId}</span>.
+                </p>
+                <button
+                  onClick={() => router.push(`/bus/${linked.busId}`)}
+                  className="w-full py-4 rounded-full font-bold text-white bg-blue-600 hover:bg-blue-700 shadow-lg transition-all"
+                >
+                  View Bus Live
+                </button>
+              </div>
+            ) : (
             <form onSubmit={handleLink} className="space-y-4">
               <div>
                 <label htmlFor="code" className="sr-only">Invite Code</label>
@@ -94,6 +132,7 @@ export default function ParentPage() {
                 {isLoading ? "Verifying..." : "Secure Link"}
               </button>
             </form>
+            )}
           </div>
         </div>
       </main>

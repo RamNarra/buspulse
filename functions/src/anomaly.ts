@@ -57,7 +57,7 @@ export const detectAnomalies = onSchedule(
       : {};
 
     // 2. Read bus→routeId mapping from Firestore (to find polylines)
-    let busToRoute: Record<string, string> = {};
+    const busToRoute: Record<string, string> = {};
     try {
       const busSnap = await fs.collection("buses").get();
       for (const doc of busSnap.docs) {
@@ -69,7 +69,7 @@ export const detectAnomalies = onSchedule(
     }
 
     // 3. Read all route stops for stop-proximity checks
-    let allStops: Record<string, Array<{ lat: number; lng: number; bufferMeters: number }>> = {};
+    const allStops: Record<string, Array<{ lat: number; lng: number; bufferMeters: number }>> = {};
     try {
       const stopSnap = await fs.collection("stops").get();
       for (const doc of stopSnap.docs) {

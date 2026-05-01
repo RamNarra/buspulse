@@ -2,7 +2,7 @@
 
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { Bus, LogOut, Settings, Loader2, Navigation, Activity, Clock, Zap, Radio, Crosshair } from "lucide-react";
+import { Bus, LogOut, Settings, Loader2, Navigation, Activity, Clock, Zap, Radio, Crosshair, WifiOff, AlertOctagon } from "lucide-react";
 
 import { BusMap } from "@/components/map/bus-map";
 import { useAuthSession } from "@/hooks/use-auth-session";
@@ -42,7 +42,11 @@ export default function DashboardPage() {
   const myRouteBus = fleet.find((b) => b.routeNumber === busId);
   const studentsRelying = myRouteBus ? myRouteBus.activePingers - 1 : 0; // minus self
 
-  if ((mode === "live" && authLoading) || studentLoading || busState.isLoading) {
+  // Skeleton state: show when auth or student profile is loading
+  // (map still renders below; only the overlays are skeletonised)
+  const isBootstrapping = (mode === "live" && authLoading) || studentLoading;
+
+  if (isBootstrapping && !busState.bus) {
     return (
       <div className="min-h-[100dvh] grid place-items-center bg-slate-950">
         <div className="flex flex-col items-center gap-6">
@@ -52,6 +56,12 @@ export default function DashboardPage() {
               <Bus className="w-8 h-8 text-white animate-bounce" />
             </div>
           </div>
+          {/* Skeleton panels */}
+          <div className="w-72 space-y-3">
+            <div className="h-8 bg-white/10 rounded-xl animate-pulse" />
+            <div className="h-5 w-3/4 bg-white/8 rounded-xl animate-pulse" />
+            <div className="h-16 bg-white/6 rounded-2xl animate-pulse" />
+          </div>
           <div className="flex items-center gap-3 bg-white/10 backdrop-blur-md px-4 py-2 rounded-full border border-white/5">
             <Loader2 className="w-4 h-4 animate-spin text-indigo-400" />
             <span className="text-sm font-medium text-slate-200 tracking-wide">Syncing fleet data...</span>
@@ -60,6 +70,11 @@ export default function DashboardPage() {
       </div>
     );
   }
+
+  // Derive health status for the amber / red GPS banner
+  const healthStatus = busState.health?.status ?? "healthy";
+  const isUnhealthy = healthStatus !== "healthy" && healthStatus !== "degraded";
+  const isEstimating = busState.isLoading || fleet.some((b) => b.estimated);
 
   return (
     <div className="h-[100dvh] w-full flex flex-col relative bg-slate-900 overflow-hidden font-sans">
@@ -141,6 +156,56 @@ export default function DashboardPage() {
           </div>
         </div>
       </header>
+
+      {/* ── GPS HEALTH ALERT BANNER ─────────────────────────────────────────── */}
+      {isUnhealthy && (
+        <div className="absolute top-20 left-4 right-4 sm:left-6 sm:right-6 z-30">
+          <div className="mx-auto max-w-5xl">
+            <div className={`backdrop-blur-md border rounded-2xl px-3 py-2 flex items-center gap-3 shadow-lg ${
+              healthStatus === "stranded" || healthStatus === "ghost"
+                ? "bg-red-500/10 border-red-500/20"
+                : "bg-amber-500/10 border-amber-500/20"
+            }`}>
+              <div className={`w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0 ${
+                healthStatus === "stranded" || healthStatus === "ghost"
+                  ? "bg-red-500/20"
+                  : "bg-amber-500/20"
+              }`}>
+                {healthStatus === "ghost" || healthStatus === "offline"
+                  ? <WifiOff className="w-3.5 h-3.5 text-red-400" />
+                  : <AlertOctagon className="w-3.5 h-3.5 text-amber-400" />}
+              </div>
+              <div className="min-w-0">
+                <p className={`text-[10px] font-black uppercase tracking-widest ${
+                  healthStatus === "stranded" || healthStatus === "ghost" ? "text-red-300" : "text-amber-300"
+                }`}>
+                  {healthStatus === "deviated" && "⚠️ Bus may be off-route — GPS extrapolating"}
+                  {healthStatus === "stranded" && "🔴 Bus appears stationary — confirming with driver"}
+                  {healthStatus === "ghost" && "🔴 GPS signal lost — last known position shown"}
+                  {healthStatus === "stale" && "⚠️ GPS signal is stale — position may be delayed"}
+                  {healthStatus === "offline" && "⚠️ Bus signal offline — contact college transport"}
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Estimation notice (dead reckoning) */}
+      {!isUnhealthy && isEstimating && (
+        <div className="absolute top-20 left-4 right-4 sm:left-6 sm:right-6 z-30">
+          <div className="mx-auto max-w-5xl">
+            <div className="bg-amber-500/8 backdrop-blur-md border border-amber-500/15 rounded-2xl px-3 py-2 flex items-center gap-3 shadow-lg">
+              <div className="w-7 h-7 rounded-full bg-amber-500/15 flex items-center justify-center flex-shrink-0">
+                <Loader2 className="w-3.5 h-3.5 text-amber-400 animate-spin" />
+              </div>
+              <p className="text-[10px] font-black text-amber-300/80 uppercase tracking-widest">
+                GPS syncing — extrapolating position
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ── HERO LEADER BANNER ────────────────────────────────────────────────── */}
       {isLeader && trackingState === "BOARDED" && (
