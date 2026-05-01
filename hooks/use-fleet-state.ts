@@ -41,7 +41,11 @@ type BusPhysics = {
   routeNumber: string;
 };
 
-export function useFleetState() {
+/**
+ * When `scopeBusId` is provided the listener is scoped to that single bus's
+ * candidates — safe for student dashboards. Omit only for admin fleet views.
+ */
+export function useFleetState(scopeBusId?: string | null) {
   const [fleet, setFleet] = useState<FleetBus[]>([]);
 
   // Stable reference to the physics snapshot per route, used for dead reckoning
@@ -54,7 +58,9 @@ export function useFleetState() {
     const db = getDatabase(app);
 
     // ── Live Firebase listener ───────────────────────────────────────────────
-    const unsubscribe = onValue(ref(db, `trackerCandidates`), (snapshot) => {
+    // Scope to a single bus when possible to avoid whole-tree fanout.
+    const listenPath = scopeBusId ? `trackerCandidates/${scopeBusId}` : `trackerCandidates`;
+    const unsubscribe = onValue(ref(db, listenPath), (snapshot) => {
       const now = Date.now();
 
       if (!snapshot.exists()) {
@@ -63,10 +69,11 @@ export function useFleetState() {
         return;
       }
 
-      const allRoutes = snapshot.val() as Record<
-        string,
-        Record<string, { lat?: number; lng?: number; updatedAt?: number; speed?: number }>
-      >;
+      // When scoped to a single busId the snapshot is already the candidates map;
+      // wrap it under the busId key so the loop below stays uniform.
+      const rawVal = snapshot.val() as Record<string, { lat?: number; lng?: number; updatedAt?: number; speed?: number }> | Record<string, Record<string, { lat?: number; lng?: number; updatedAt?: number; speed?: number }>>;
+      const allRoutes: Record<string, Record<string, { lat?: number; lng?: number; updatedAt?: number; speed?: number }>> =
+        scopeBusId ? { [scopeBusId]: rawVal as Record<string, { lat?: number; lng?: number; updatedAt?: number; speed?: number }> } : rawVal as Record<string, Record<string, { lat?: number; lng?: number; updatedAt?: number; speed?: number }>>;
 
       const nextPhysics: Record<string, BusPhysics> = {};
       const liveFleet: FleetBus[] = [];
@@ -112,9 +119,14 @@ export function useFleetState() {
             const vLat = (avgLat - prevPhys.lat) / dt;
             const vLng = (avgLng - prevPhys.lng) / dt;
             
-            // Step 4: sanity-check: ignore velocity if implied speed > 120 km/h
-            const distTest = haversineMeters(0, 0, vLat * 1000, vLng * 1000);
-            const speedMs = distTest / 1; // per ms → m/ms → * 1000 = m/s
+            // Step 4: sanity-check: ignore velocity if implied speed > 120 km/h.
+            // Project the velocity vector 1 000 ms forward from the real position
+            // and measure the resultant distance in metres — that IS metres/second.
+            const speedMs = haversineMeters(
+              avgLat, avgLng,
+              avgLat + vLat * 1000,
+              avgLng + vLng * 1000,
+            );
             if (speedMs < 33.3) {
               dLat = vLat;
               dLng = vLng;

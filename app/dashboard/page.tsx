@@ -21,7 +21,8 @@ export default function DashboardPage() {
     useCurrentStudentProfile(user);
 
   const { trackingState, isLeader, peerCount } = useCrowdsourceTracking();
-  const { fleet } = useFleetState();
+  const busId = (student ?? mockStudent).busId ?? mockBus.id;
+  const { fleet } = useFleetState(busId);
 
   useEffect(() => {
     if (mode === "live" && !authLoading && !user) {
@@ -35,7 +36,6 @@ export default function DashboardPage() {
     effectiveStudent.fullName.slice(0, 1).toUpperCase();
   const accountName = user?.email ?? effectiveStudent.fullName;
 
-  const busId = effectiveStudent.busId ?? mockBus.id;
   const busState = useCurrentBusState({ busId });
 
   // Total students being served by this user's signal (all pingers on their route)

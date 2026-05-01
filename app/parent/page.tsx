@@ -2,27 +2,29 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { Link2, Map as MapIcon, LogOut, CheckCircle2 } from "lucide-react";
+import { Link2, LogOut, AlertCircle } from "lucide-react";
 
 import { useAuthSession } from "@/hooks/use-auth-session";
-import { mockBus } from "@/lib/mock/fixtures";
 
 export default function ParentPage() {
   const router = useRouter();
   const { signOut } = useAuthSession();
   const [inviteCode, setInviteCode] = useState("");
-  const [isLinked, setIsLinked] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const handleLink = async (e: React.FormEvent) => {
     e.preventDefault();
     if (inviteCode.length < 6) return;
-    
+
     setIsLoading(true);
-    // Mock API call to verify parent link
-    await new Promise(resolve => setTimeout(resolve, 1500));
+    setError(null);
+
+    // TODO Phase 3: replace with Server Action that verifies the invite code
+    // against Firestore `parentInvites/{code}` and creates the parentLinks doc.
+    await new Promise((resolve) => setTimeout(resolve, 400));
     setIsLoading(false);
-    setIsLinked(true);
+    setError("Parent linking requires a valid invite code issued by your college admin. This feature is being rolled out — contact your college transport coordinator.");
   };
 
   return (
@@ -49,63 +51,50 @@ export default function ParentPage() {
 
       <main className="flex-1 flex items-center justify-center p-4">
         <div className="w-full max-w-md">
-          {!isLinked ? (
-            <div className="bg-white rounded-3xl p-8 shadow-xl border border-slate-100">
-              <div className="w-16 h-16 bg-blue-50 text-blue-600 rounded-full flex items-center justify-center mb-6 mx-auto">
-                <Link2 className="w-8 h-8" />
-              </div>
-              <h2 className="text-2xl font-bold text-slate-900 text-center mb-2">Link Student</h2>
-              <p className="text-slate-500 text-sm text-center mb-8">
-                Enter the 6-digit secure code provided by your student&apos;s college to view their bus location.
-              </p>
+          <div className="bg-white rounded-3xl p-8 shadow-xl border border-slate-100">
+            <div className="w-16 h-16 bg-blue-50 text-blue-600 rounded-full flex items-center justify-center mb-6 mx-auto">
+              <Link2 className="w-8 h-8" />
+            </div>
+            <h2 className="text-2xl font-bold text-slate-900 text-center mb-2">Link Student</h2>
+            <p className="text-slate-500 text-sm text-center mb-8">
+              Enter the 6-digit secure code provided by your student&apos;s college to view their bus location.
+            </p>
 
-              <form onSubmit={handleLink} className="space-y-4">
-                <div>
-                  <label htmlFor="code" className="sr-only">Invite Code</label>
-                  <input
-                    id="code"
-                    type="text"
-                    required
-                    maxLength={6}
-                    placeholder="e.g. A4X9B2"
-                    value={inviteCode}
-                    onChange={(e) => setInviteCode(e.target.value.toUpperCase())}
-                    className="w-full text-center tracking-[0.5em] font-mono text-2xl font-bold bg-slate-50 border border-slate-200 rounded-2xl px-4 py-4 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
-                  />
-                </div>
-                <button
-                  type="submit"
-                  disabled={inviteCode.length < 6 || isLoading}
-                  className={`w-full py-4 rounded-full font-bold text-white transition-all ${
-                    inviteCode.length < 6 || isLoading
-                      ? "bg-slate-300 cursor-not-allowed"
-                      : "bg-blue-600 hover:bg-blue-700 shadow-lg hover:-translate-y-0.5"
-                  }`}
-                >
-                  {isLoading ? "Verifying..." : "Secure Link"}
-                </button>
-              </form>
-            </div>
-          ) : (
-            <div className="bg-white rounded-3xl overflow-hidden shadow-xl border border-slate-100">
-              <div className="p-8 pb-6 text-center border-b border-slate-100">
-                <div className="w-16 h-16 bg-green-50 text-green-600 rounded-full flex items-center justify-center mb-4 mx-auto">
-                  <CheckCircle2 className="w-8 h-8" />
-                </div>
-                <h2 className="text-xl font-bold text-slate-900">Student Linked</h2>
-                <p className="text-sm text-slate-500 mt-1">You are now tracking Bus {mockBus.code}.</p>
+            <form onSubmit={handleLink} className="space-y-4">
+              <div>
+                <label htmlFor="code" className="sr-only">Invite Code</label>
+                <input
+                  id="code"
+                  type="text"
+                  required
+                  maxLength={6}
+                  placeholder="e.g. A4X9B2"
+                  value={inviteCode}
+                  onChange={(e) => setInviteCode(e.target.value.toUpperCase())}
+                  className="w-full text-center tracking-[0.5em] font-mono text-2xl font-bold bg-slate-50 border border-slate-200 rounded-2xl px-4 py-4 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
+                />
               </div>
-              <div className="p-6 bg-slate-50">
-                <button
-                  onClick={() => router.push("/dashboard")}
-                  className="w-full flex items-center justify-center gap-2 bg-blue-600 text-white rounded-full py-4 font-bold shadow-lg hover:bg-blue-700 transition-all hover:-translate-y-0.5"
-                >
-                  <MapIcon className="w-5 h-5" />
-                  Open Live Tracking
-                </button>
-              </div>
-            </div>
-          )}
+
+              {error && (
+                <div className="flex items-start gap-3 p-4 bg-amber-50 border border-amber-200 rounded-2xl">
+                  <AlertCircle className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" />
+                  <p className="text-sm text-amber-800 font-medium">{error}</p>
+                </div>
+              )}
+
+              <button
+                type="submit"
+                disabled={inviteCode.length < 6 || isLoading}
+                className={`w-full py-4 rounded-full font-bold text-white transition-all ${
+                  inviteCode.length < 6 || isLoading
+                    ? "bg-slate-300 cursor-not-allowed"
+                    : "bg-blue-600 hover:bg-blue-700 shadow-lg hover:-translate-y-0.5"
+                }`}
+              >
+                {isLoading ? "Verifying..." : "Secure Link"}
+              </button>
+            </form>
+          </div>
         </div>
       </main>
     </div>

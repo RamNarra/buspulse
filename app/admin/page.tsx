@@ -8,21 +8,24 @@ import {
   Bus as BusIcon, 
   Map, 
   LogOut,
-  MoreVertical,
   Activity
 } from "lucide-react";
 
 import { useAuthSession } from "@/hooks/use-auth-session";
-import { mockBus } from "@/lib/mock/fixtures";
+import { useFleetState } from "@/hooks/use-fleet-state";
 
 export default function AdminPage() {
   const router = useRouter();
   const { signOut } = useAuthSession();
   const [activeTab, setActiveTab] = useState("overview");
 
-  // In a real app, this would check if user role === 'admin'
-  // For the sake of the MVP, we assume any authenticated user hitting this route is authorized 
-  // or we just render the premium view for demonstration.
+  // Live fleet data — admin scopes to all buses (no busId filter)
+  const { fleet } = useFleetState();
+  const activeBuses = fleet.length;
+  const totalPingers = fleet.reduce((acc, b) => acc + b.activePingers, 0);
+  const healthyBuses = fleet.filter((b) => !b.estimated).length;
+  const systemHealth =
+    activeBuses === 0 ? "N/A" : `${Math.round((healthyBuses / activeBuses) * 100)}%`;
 
   return (
     <div className="min-h-[100dvh] bg-slate-50 flex flex-col md:flex-row">
@@ -94,10 +97,10 @@ export default function AdminPage() {
           {/* KPI Cards */}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6">
             {[
-              { label: "Active Buses", value: "12", sub: "of 14 total fleet", trend: "+2" },
-              { label: "Students Tracking", value: "482", sub: "Currently active sessions", trend: "+14%" },
-              { label: "Avg. Route Deviation", value: "1.2m", sub: "Optimal pathing", trend: "-0.4m" },
-              { label: "System Health", value: "99.9%", sub: "Last 30 days uptime", trend: "" },
+              { label: "Active Buses", value: String(activeBuses), sub: "with live contributors", trend: "" },
+              { label: "Students Tracking", value: String(totalPingers), sub: "Active GPS contributors", trend: "" },
+              { label: "Avg. Route Deviation", value: "N/A", sub: "Available in Phase 2", trend: "" },
+              { label: "System Health", value: systemHealth, sub: `${healthyBuses} of ${activeBuses} live`, trend: "" },
             ].map((kpi, i) => (
               <div key={i} className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm relative overflow-hidden">
                 <div className="absolute top-0 right-0 p-6 opacity-5">
@@ -117,53 +120,53 @@ export default function AdminPage() {
             ))}
           </div>
 
-          {/* Active Fleet Table */}
+          {/* Active Fleet Table — live data from RTDB */}
           <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
             <div className="px-6 py-5 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
               <h3 className="text-base font-bold text-slate-900">Active Fleet Status</h3>
-              <button className="text-blue-600 text-sm font-bold hover:text-blue-700">View All</button>
+              <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">{fleet.length} buses tracked</span>
             </div>
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-sm">
-                <thead>
-                  <tr className="bg-white border-b border-slate-100">
-                    <th className="px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Bus Code</th>
-                    <th className="px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Driver</th>
-                    <th className="px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Route</th>
-                    <th className="px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Status</th>
-                    <th className="px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider"></th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {[
-                    { code: mockBus.code, driver: "A. Sharma", route: "Secunderabad Inbound", status: "Healthy" },
-                    { code: "TS08UB1235", driver: "K. Reddy", route: "Kukatpally Inbound", status: "Healthy" },
-                    { code: "TS08UB1236", driver: "M. Kumar", route: "Uppal Inbound", status: "Degraded" },
-                    { code: "TS08UB1237", driver: "S. Rao", route: "L.B. Nagar Inbound", status: "Offline" },
-                  ].map((row, i) => (
-                    <tr key={i} className="hover:bg-slate-50/80 transition-colors">
-                      <td className="px-6 py-4 font-semibold text-slate-900">{row.code}</td>
-                      <td className="px-6 py-4 font-medium text-slate-600">{row.driver}</td>
-                      <td className="px-6 py-4 text-slate-500">{row.route}</td>
-                      <td className="px-6 py-4">
-                        <span className={`px-2.5 py-1 rounded-full text-xs font-bold uppercase tracking-wider ${
-                          row.status === "Healthy" ? "bg-green-100 text-green-700" :
-                          row.status === "Degraded" ? "bg-yellow-100 text-yellow-800" :
-                          "bg-slate-100 text-slate-600"
-                        }`}>
-                          {row.status}
-                        </span>
-                      </td>
-                      <td className="px-6 py-4 text-right">
-                        <button className="text-slate-400 hover:text-slate-600">
-                          <MoreVertical className="w-5 h-5" />
-                        </button>
-                      </td>
+            {fleet.length === 0 ? (
+              <div className="px-6 py-10 text-center">
+                <BusIcon className="w-8 h-8 text-slate-300 mx-auto mb-3" />
+                <p className="text-sm font-semibold text-slate-400">No buses are actively tracked right now.</p>
+                <p className="text-xs text-slate-400 mt-1">Fleet signals appear here as students board and contribute GPS.</p>
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-sm">
+                  <thead>
+                    <tr className="bg-white border-b border-slate-100">
+                      <th className="px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Bus ID</th>
+                      <th className="px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Contributors</th>
+                      <th className="px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Signal</th>
+                      <th className="px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Last Update</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {fleet.map((bus) => {
+                      const ageS = Math.round((Date.now() - bus.updatedAt) / 1000);
+                      return (
+                        <tr key={bus.routeNumber} className="hover:bg-slate-50/80 transition-colors">
+                          <td className="px-6 py-4 font-semibold text-slate-900">{bus.routeNumber}</td>
+                          <td className="px-6 py-4 font-medium text-slate-600">{bus.activePingers}</td>
+                          <td className="px-6 py-4">
+                            <span className={`px-2.5 py-1 rounded-full text-xs font-bold uppercase tracking-wider ${
+                              bus.estimated
+                                ? "bg-yellow-100 text-yellow-800"
+                                : "bg-green-100 text-green-700"
+                            }`}>
+                              {bus.estimated ? "Estimated" : "Live"}
+                            </span>
+                          </td>
+                          <td className="px-6 py-4 text-slate-500">{ageS}s ago</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
 
         </div>

@@ -126,9 +126,10 @@ export function useCrowdsourceTracking(busStops: BusStop[] = []) {
     }
     const opaqueId = opaqueIdRef.current;
 
-    // Register opaque ID mapping
+    // Register opaque ID mapping — include busId so RTDB rules can verify
+    // that this opaqueId is only allowed to write to trackerCandidates/{busId}.
     const mappingRef = ref(db, `trackerMappings/${opaqueId}`);
-    void set(mappingRef, { uid });
+    void set(mappingRef, { uid, busId });
     onDisconnect(mappingRef).remove();
 
     // Firebase node refs

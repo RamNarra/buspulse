@@ -21,7 +21,7 @@
       "$busId": {
         ".read": "auth != null",
         "$uuid": {
-          ".write": "auth != null && root.child('trackerMappings').child($uuid).child('uid').val() === auth.uid"
+          ".write": "auth != null && root.child('trackerMappings').child($uuid).child('uid').val() === auth.uid && root.child('trackerMappings').child($uuid).child('busId').val() === $busId"
         }
       }
     },
@@ -30,7 +30,7 @@
       "$busId": {
         ".read": "auth != null",
         "$uuid": {
-          ".write": "auth != null && root.child('trackerMappings').child($uuid).child('uid').val() === auth.uid"
+          ".write": "auth != null && root.child('trackerMappings').child($uuid).child('uid').val() === auth.uid && root.child('trackerMappings').child($uuid).child('busId').val() === $busId"
         }
       }
     },
@@ -39,7 +39,7 @@
       "$busId": {
         ".read":  "auth != null",
         "leader": {
-          ".write": "auth != null"
+          ".write": "auth != null && (!newData.exists() || (root.child('trackerMappings').child(newData.child('uid').val()).child('uid').val() === auth.uid && root.child('trackerMappings').child(newData.child('uid').val()).child('busId').val() === $busId))"
         }
       }
     },
