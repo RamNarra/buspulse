@@ -58,6 +58,20 @@
       }
     },
 
+    "busesByGeohash": {
+      "$geohash": {
+        ".read":  "auth != null",
+        ".write": false
+      }
+    },
+
+    "busPaths": {
+      "$busId": {
+        ".read":  "auth != null",
+        ".write": false
+      }
+    },
+
     "sessions": {
       "$uid": {
         ".read":  "auth != null && auth.uid === $uid",

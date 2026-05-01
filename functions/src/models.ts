@@ -25,7 +25,14 @@ export type BusLocation = {
   routeMatchScore: number;
 };
 
-export type BusHealthStatus = "healthy" | "degraded" | "stale" | "offline";
+export type BusHealthStatus =
+  | "healthy"
+  | "degraded"
+  | "stale"
+  | "offline"
+  | "deviated"
+  | "stranded"
+  | "ghost";
 
 export type BusHealth = {
   busId: string;
@@ -34,4 +41,17 @@ export type BusHealth = {
   staleCandidateCount: number;
   lastDerivedAt: number;
   note: string;
+};
+
+/** Snapped-to-roads path (Phase 2.2). */
+export type BusPath = {
+  pts: Array<{ lat: number; lng: number }>;
+  updatedAt: number;
+};
+
+/** Route document (Firestore), minimal shape needed by functions. */
+export type RouteDoc = {
+  id: string;
+  stopIds: string[];
+  polyline?: Array<{ lat: number; lng: number }>;
 };

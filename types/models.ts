@@ -82,6 +82,8 @@ export const routeSchema = z.object({
   name: z.string().min(1),
   direction: z.enum(["inbound", "outbound"]),
   stopIds: z.array(z.string().min(1)).min(1),
+  /** Optional route polyline for deviation detection (Phase 2.4). */
+  polyline: z.array(z.object({ lat: z.number(), lng: z.number() })).optional(),
   active: z.boolean().default(true),
   createdAt: z.number().int().nonnegative(),
   updatedAt: z.number().int().nonnegative(),
@@ -149,10 +151,19 @@ export type BusLocation = z.infer<typeof busLocationSchema>;
 
 export const busHealthSchema = z.object({
   busId: z.string().min(1),
-  status: z.enum(["healthy", "degraded", "stale", "offline"]),
+  // healthy/degraded/stale/offline come from signal quality (Phase 0–1).
+  // deviated/stranded/ghost come from spatial anomaly detection (Phase 2.4).
+  status: z.enum(["healthy", "degraded", "stale", "offline", "deviated", "stranded", "ghost"]),
   activeContributors: z.number().int().nonnegative(),
   staleCandidateCount: z.number().int().nonnegative(),
   lastDerivedAt: z.number().int().nonnegative(),
   note: z.string().optional(),
 });
 export type BusHealth = z.infer<typeof busHealthSchema>;
+
+/** Snapped path written by the aggregator (Phase 2.2). */
+export const busPathSchema = z.object({
+  pts: z.array(z.object({ lat: z.number(), lng: z.number() })),
+  updatedAt: z.number().int().nonnegative(),
+});
+export type BusPath = z.infer<typeof busPathSchema>;

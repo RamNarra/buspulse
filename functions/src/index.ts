@@ -2,12 +2,17 @@ import * as admin from "firebase-admin";
 import { onValueWritten } from "firebase-functions/v2/database";
 
 import { isLocationOutlier } from "./geo";
+import { geohashEncode } from "./geohash";
+import { pushCentroid, maybeSnapToRoads } from "./snap-to-roads";
 import {
   deriveLocationFromCandidates,
   getHealthStatus,
   isCandidateStale,
 } from "./scoring";
 import type { BusHealth, BusLocation, TrackerCandidate } from "./models";
+
+export { detectAnomalies } from "./anomaly";
+export { exportBusLocationToBigQuery } from "./bigquery-export";
 
 admin.initializeApp();
 const db = admin.database();
@@ -130,10 +135,20 @@ export const aggregateBusLocation = onValueWritten(
       note: `Derived from ${derived.sourceCount} active signal(s). EMA applied.`,
     };
 
-    // 8. Atomic write — only Admin SDK can write here (clients cannot)
+    // 8. Geohash index (Phase 2.1) — write busesByGeohash/{gh5}/{busId} so
+    //    viewers can subscribe to only the cells in their viewport.
+    const gh5 = geohashEncode(derived.lat, derived.lng, 5);
+
+    // 8a. Atomic write — only Admin SDK can write here (clients cannot)
     await db.ref().update({
-      [`busLocations/${busId}`]: derived,
-      [`busHealth/${busId}`]: health,
+      [`busLocations/${busId}`]:          derived,
+      [`busHealth/${busId}`]:             health,
+      [`busesByGeohash/${gh5}/${busId}`]: now,
     });
+
+    // 9. Snap-to-roads (Phase 2.2) — fire-and-forget, throttled to 5 s.
+    //    Persists snapped path to busPaths/{busId} for the route-line overlay.
+    pushCentroid(busId, derived.lat, derived.lng);
+    void maybeSnapToRoads(busId, db, now);
   },
 );
