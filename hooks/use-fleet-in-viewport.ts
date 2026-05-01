@@ -195,12 +195,18 @@ export function useFleetInViewport(bounds: MapBounds | null): { fleet: FleetBus[
       }
     }, DEAD_RECKON_TICK_MS);
 
+    // Capture Map references in effect-body scope (not inside cleanup) to satisfy
+    // react-hooks/exhaustive-deps. These are the same Map objects — mutations
+    // made after capture are still visible since Maps are reference types.
+    const capturedBusUnsubs = busUnsubsRef.current;
+    const capturedBusData = busDataRef.current;
+
     return () => {
       for (const unsub of cellUnsubsRef.current) unsub();
       cellUnsubsRef.current = [];
-      for (const unsub of busUnsubsRef.current.values()) unsub();
-      busUnsubsRef.current.clear();
-      busDataRef.current.clear();
+      for (const unsub of capturedBusUnsubs.values()) unsub();
+      capturedBusUnsubs.clear();
+      capturedBusData.clear();
       if (tickRef.current) clearInterval(tickRef.current);
     };
   }, [bounds]);

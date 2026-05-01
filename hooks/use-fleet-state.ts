@@ -63,8 +63,6 @@ export function useFleetState(scopeBusId?: string | null) {
       : `busLocations`;
 
     const unsubscribe = onValue(ref(db, listenPath), (snapshot) => {
-      const now = Date.now();
-
       if (!snapshot.exists()) {
         physicsRef.current = {};
         setFleet([]);

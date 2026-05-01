@@ -2,9 +2,46 @@
 
 ---
 
-## Entry 1 — Production Hardening Phase 1
+## Entry 4 — Phase 4: Scale & Observability
 
-**Timestamp:** 2026-04-23T11:25:00Z
+**Timestamp:** 2026-05-01T00:00:00Z
+
+**Objective:** Add Sentry error tracing, OpenTelemetry distributed tracing, k6 load tests, cost model, budget alerts — and achieve 0 lint warnings/errors across the entire codebase.
+
+**Files Created:**
+- `sentry.client.config.ts` — Sentry client SDK init. DSN-gated (no-op when `NEXT_PUBLIC_SENTRY_DSN` unset). Session Replay enabled at 1% / 100%-on-error. Masks all text for FERPA compliance.
+- `sentry.server.config.ts` — Sentry server SDK. HTTP integration for Server Action tracing. 10% trace sample rate in prod.
+- `sentry.edge.config.ts` — Sentry edge runtime config (middleware / Edge API routes).
+- `instrumentation.ts` — Next.js built-in hook. Initialises `@vercel/otel` (OpenTelemetry) + Sentry server in `nodejs` runtime; Sentry edge in `edge` runtime. Exports traces to Vercel Observability or any OTLP endpoint.
+- `tests/load/k6-viewers.js` — k6 load test: ramps to 5,000 VUs simulating students loading dashboard + bus page + polling ETA API. Thresholds: p95 < 400 ms, error rate < 0.5%, sustained 10 min.
+- `tests/load/k6-buses.js` — k6 load test: 500 VUs each sending GPS contributor pings every 2 s for 5 min. Thresholds: p95 < 200 ms, error rate < 0.5%.
+- `tests/load/README.md` — Run instructions, SLO thresholds, CI integration example.
+
+**Files Modified:**
+- `next.config.ts` — Wrapped with `withSentryConfig`. Source map upload gated on `SENTRY_AUTH_TOKEN`. Tree-shakes Sentry from client bundle when DSN unset.
+- `docs/COSTS.md` — Added Phase 4 sections: GCP budget alert CLI commands, 50/80/100% thresholds, Cloud Monitoring SLO targets, observability stack summary table.
+- `.env.example` — Added `NEXT_PUBLIC_SENTRY_DSN`, `SENTRY_DSN`, `SENTRY_AUTH_TOKEN`, `SENTRY_ORG`, `SENTRY_PROJECT`, `OTEL_EXPORTER_OTLP_ENDPOINT`.
+- `README.md` — Full rewrite: architecture table, role/access matrix, implementation phases table, scripts table, load testing section, observability section, cost summary.
+
+**Lint Warning Fixes (achieving 0 warnings):**
+- `components/auth/login-form.tsx` — Removed unused `LogIn` and `Zap` lucide imports.
+- `hooks/use-crowdsource-tracking.ts` — Removed unused `serverTimestamp` import.
+- `hooks/use-fleet-state.ts` — Removed unused `now = Date.now()` assignment inside RTDB listener.
+- `hooks/use-fleet-in-viewport.ts` — Fixed ref-in-cleanup warning: captures `busUnsubsRef.current` and `busDataRef.current` into local variables before cleanup function returns.
+
+**Key Decisions:**
+- Used `@vercel/otel` instead of raw `@opentelemetry/sdk-node` for OTEL — first-class Vercel support, zero config for trace export to Vercel Observability.
+- Sentry is DSN-gated throughout — zero bundle impact / no errors when DSN env var is absent.
+- `withSentryConfig` wraps `nextConfig` in `next.config.ts` with `autoInstrumentServerFunctions: true` to auto-trace all Server Actions.
+- k6 scripts simulate realistic 2s contributor ping cadence and 15–30s viewer dwell time.
+
+**Verification:** `npm run validate` → Exit code 0, 0 errors, 0 warnings. `npm test` → 40/40 tests pass. `npx vercel --prod` → Deployed.
+
+---
+
+## Entry 3 — Production Hardening Phase 2.1
+
+**Timestamp:** 2026-04-24T17:05:00Z
 
 **Objective:** Transform the MVP into a production-grade tracking system.
 

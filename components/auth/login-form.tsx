@@ -1,6 +1,6 @@
 "use client";
 
-import { Bus, LogIn, ShieldCheck, Zap } from "lucide-react";
+import { Bus, ShieldCheck } from "lucide-react";
 import { getAuth, signInWithRedirect, GoogleAuthProvider } from "firebase/auth";
 import { getFirebaseClientApp } from "@/lib/firebase/client";
 import { useAuthContext } from "@/components/auth/auth-provider";

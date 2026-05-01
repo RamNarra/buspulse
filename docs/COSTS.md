@@ -58,3 +58,57 @@ At the planned pricing (₹50/college/mo ≈ $0.60), these costs **must be subsi
 - [ ] The ETA endpoint has a **30-second Firestore cache** — one Routes API call serves all viewers of the same bus.
 - [ ] `exportBusLocationToBigQuery` can be **disabled** (comment out the export in `functions/src/index.ts`) until BigQuery is needed for reporting.
 - [ ] Use **Firebase App Check** (Phase 1.4) to prevent API abuse from unsigned clients.
+
+---
+
+## Phase 4 — Budget Alert Setup (GCP CLI)
+
+Requires your billing account ID from **GCP Console → Billing**.
+
+```bash
+BILLING_ACCOUNT="XXXXXX-XXXXXX-XXXXXX"   # replace with real ID
+
+gcloud billing budgets create \
+  --billing-account="$BILLING_ACCOUNT" \
+  --display-name="BusPulse Monthly Budget" \
+  --budget-amount=200USD \
+  --threshold-rule=percent=0.5,basis=CURRENT_SPEND \
+  --threshold-rule=percent=0.8,basis=CURRENT_SPEND \
+  --threshold-rule=percent=1.0,basis=CURRENT_SPEND \
+  --notifications-rule-pubsub-topic=projects/buspulse-493407/topics/billing-alerts
+```
+
+**What happens at each threshold:**
+
+| Threshold | Trigger | Recommended action |
+|-----------|---------|-------------------|
+| 50% ($100) | Email alert | Review — likely normal growth |
+| 80% ($160) | Email + PagerDuty | Disable non-critical features (BigQuery export) |
+| 100% ($200) | Email + PagerDuty | Throttle Routes API; cap at 1 req/60s |
+
+---
+
+## Phase 4 — Cloud Monitoring SLOs
+
+Three SLO policies to create in **GCP Console → Monitoring → SLOs**:
+
+| SLO | Metric | Target |
+|-----|--------|--------|
+| ETA API latency | `http/server/response_latencies` p95 on `/api/eta/` | < 400 ms |
+| RTDB error rate | Firebase RTDB connection errors | < 0.5% per 5-min window |
+| App availability | Uptime check on `buspulse-livid.vercel.app` | 99.5% per 30-day window |
+
+Terraform config for these SLOs is out of scope for this repo; configure manually or via
+[Cloud Monitoring API](https://cloud.google.com/monitoring/service-monitoring).
+
+---
+
+## Observability Stack Summary (Phase 4)
+
+| Tool | What it covers | Config |
+|------|---------------|--------|
+| **Sentry** | Client + server JS errors; Source map upload on deploy | `NEXT_PUBLIC_SENTRY_DSN`, `SENTRY_AUTH_TOKEN` |
+| **@vercel/otel** | OpenTelemetry traces for Server Actions, API routes | Auto via `instrumentation.ts` |
+| **Cloud Trace** | Distributed tracing to GCP | Set `OTEL_EXPORTER_OTLP_ENDPOINT` to Cloud Trace endpoint |
+| **Cloud Monitoring** | SLO dashboards, uptime, billing alerts | GCP Console |
+| **k6** | Synthetic load tests (5K viewers, 500 contributors) | `tests/load/` |
