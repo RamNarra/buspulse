@@ -273,85 +273,37 @@ export function subscribeToDerivedBusState(
     });
   };
 
+  // Phase 1.2: subscribe only to the server-aggregated busLocations node.
+  // Client-side averaging of trackerCandidates has been removed — the Cloud
+  // Function aggregator (functions/src/index.ts) is now the sole writer.
   const unsubscribeLocation = onValue(
     ref(db, realtimePaths.busLocations(busId)),
     (snapshot) => {
-      // Only use fallback location if we aren't already deriving from candidates
       if (!snapshot.exists()) {
-        if (!location || location.confidence === 0) location = null;
+        location = null;
       } else {
         const parsed = busLocationSchema.safeParse(snapshot.val());
-        if (parsed.success && (!location || location.confidence === 0)) {
-          location = parsed.data;
-        }
+        location = parsed.success ? parsed.data : null;
       }
       emit();
     },
   );
 
-  const unsubscribeCandidates = onValue(
-    ref(db, `trackerCandidates/${busId}`),
+  const unsubscribeHealth = onValue(
+    ref(db, realtimePaths.busHealth(busId)),
     (snapshot) => {
-      if (snapshot.exists()) {
-        const candidates = snapshot.val();
-        let totalLat = 0;
-        let totalLng = 0;
-        let count = 0;
-        let latestUpdate = 0;
-
-        for (const uid in candidates) {
-          const candidate = candidates[uid];
-          // Filter out stale candidates (> 30 seconds old)
-          if (
-            candidate.lat && 
-            candidate.lng && 
-            candidate.updatedAt && 
-            (Date.now() - candidate.updatedAt < 30000)
-          ) {
-            totalLat += candidate.lat;
-            totalLng += candidate.lng;
-            count++;
-            if (candidate.updatedAt > latestUpdate) latestUpdate = candidate.updatedAt;
-          }
-        }
-
-        if (count > 0) {
-          location = {
-            lat: totalLat / count,
-            lng: totalLng / count,
-            accuracy: 10,
-            sourceCount: count,
-            routeMatchScore: 1,
-            speed: undefined,
-            heading: undefined,
-            confidence: count, // Confidence represents the number of active trackers!
-            updatedAt: latestUpdate,
-          };
-        } else {
-          location = { ...location, confidence: 0 } as BusLocation; // Mark as fallback mode
-        }
+      if (!snapshot.exists()) {
+        health = null;
       } else {
-        location = { ...location, confidence: 0 } as BusLocation;
+        const parsed = busHealthSchema.safeParse(snapshot.val());
+        health = parsed.success ? parsed.data : null;
       }
-      
       emit();
-    }
+    },
   );
-
-  const unsubscribeHealth = onValue(ref(db, realtimePaths.busHealth(busId)), (snapshot) => {
-    if (!snapshot.exists()) {
-      health = null;
-    } else {
-      const parsed = busHealthSchema.safeParse(snapshot.val());
-      health = parsed.success ? parsed.data : null;
-    }
-
-    emit();
-  });
 
   return () => {
     unsubscribeLocation();
-    unsubscribeCandidates();
     unsubscribeHealth();
   };
 }

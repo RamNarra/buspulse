@@ -15,12 +15,9 @@ export type FleetBus = {
   estimated: boolean;
 };
 
-/** Max age for a ping to be considered "fresh" */
-const STALE_MS = 60_000;
-
 /**
- * If the bus hasn't received a fresh ping in this long, switch to dead
- * reckoning using the last known velocity vector.
+ * If the bus hasn't received a fresh server-aggregated ping in this long,
+ * switch to dead reckoning using the last known velocity vector.
  */
 const DEAD_RECKON_AFTER_MS = 15_000;
 
@@ -42,13 +39,15 @@ type BusPhysics = {
 };
 
 /**
- * When `scopeBusId` is provided the listener is scoped to that single bus's
- * candidates — safe for student dashboards. Omit only for admin fleet views.
+ * Phase 1.2: Subscribes to server-aggregated `busLocations/` (written by the
+ * Cloud Function aggregator) instead of raw `trackerCandidates/`.
+ *
+ * When `scopeBusId` is provided the listener is scoped to that single bus —
+ * safe for student dashboards. Omit only for admin fleet views.
  */
 export function useFleetState(scopeBusId?: string | null) {
   const [fleet, setFleet] = useState<FleetBus[]>([]);
 
-  // Stable reference to the physics snapshot per route, used for dead reckoning
   const physicsRef = useRef<Record<string, BusPhysics>>({});
   const tickRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -57,9 +56,12 @@ export function useFleetState(scopeBusId?: string | null) {
     if (!app) return;
     const db = getDatabase(app);
 
-    // ── Live Firebase listener ───────────────────────────────────────────────
-    // Scope to a single bus when possible to avoid whole-tree fanout.
-    const listenPath = scopeBusId ? `trackerCandidates/${scopeBusId}` : `trackerCandidates`;
+    // Phase 1.2: read from `busLocations` (server-aggregated).
+    // Only the Cloud Function aggregator writes here — clients cannot.
+    const listenPath = scopeBusId
+      ? `busLocations/${scopeBusId}`
+      : `busLocations`;
+
     const unsubscribe = onValue(ref(db, listenPath), (snapshot) => {
       const now = Date.now();
 
@@ -69,87 +71,82 @@ export function useFleetState(scopeBusId?: string | null) {
         return;
       }
 
-      // When scoped to a single busId the snapshot is already the candidates map;
-      // wrap it under the busId key so the loop below stays uniform.
-      const rawVal = snapshot.val() as Record<string, { lat?: number; lng?: number; updatedAt?: number; speed?: number }> | Record<string, Record<string, { lat?: number; lng?: number; updatedAt?: number; speed?: number }>>;
-      const allRoutes: Record<string, Record<string, { lat?: number; lng?: number; updatedAt?: number; speed?: number }>> =
-        scopeBusId ? { [scopeBusId]: rawVal as Record<string, { lat?: number; lng?: number; updatedAt?: number; speed?: number }> } : rawVal as Record<string, Record<string, { lat?: number; lng?: number; updatedAt?: number; speed?: number }>>;
+      const rawVal = snapshot.val() as Record<string, unknown>;
+
+      // When scoped to a single busId the snapshot is the BusLocation object.
+      // Wrap it under the busId key so the loop stays uniform.
+      const allLocations: Record<
+        string,
+        { lat?: number; lng?: number; updatedAt?: number; speed?: number; heading?: number; sourceCount?: number }
+      > = scopeBusId
+        ? { [scopeBusId]: rawVal as { lat?: number; lng?: number; updatedAt?: number; speed?: number; heading?: number; sourceCount?: number } }
+        : (rawVal as Record<string, { lat?: number; lng?: number; updatedAt?: number; speed?: number; heading?: number; sourceCount?: number }>);
 
       const nextPhysics: Record<string, BusPhysics> = {};
       const liveFleet: FleetBus[] = [];
 
-      for (const routeNumber in allRoutes) {
-        const candidates = allRoutes[routeNumber];
+      for (const routeNumber in allLocations) {
+        const loc = allLocations[routeNumber];
 
-        // Step 1: collect fresh, valid pings
-        const fresh: { lat: number; lng: number; updatedAt: number }[] = [];
-        for (const uid in candidates) {
-          const c = candidates[uid];
-          const isStale = typeof c.updatedAt === "number" && now - c.updatedAt > STALE_MS;
-          
-          if (
-            typeof c.lat === "number" &&
-            typeof c.lng === "number" &&
-            !isStale
-          ) {
-            fresh.push({ lat: c.lat, lng: c.lng, updatedAt: c.updatedAt as number });
-          } else if (isStale) {
-             console.warn(`[Fleet] Rejected stale ping from ${uid}. Age: ${(now - (c.updatedAt || 0))/1000}s`);
-          }
+        if (
+          typeof loc.lat !== "number" ||
+          typeof loc.lng !== "number" ||
+          typeof loc.updatedAt !== "number"
+        ) {
+          continue;
         }
 
-        if (fresh.length === 0) continue;
+        // Derive velocity for dead reckoning from consecutive position diffs.
+        let dLat = 0;
+        let dLng = 0;
+        const prev = physicsRef.current[routeNumber];
 
-        // Step 2: Average clean pings (No inter-device outlier checks)
-        let tLat = 0, tLng = 0, latest = 0;
-        for (const p of fresh) {
-          tLat += p.lat; tLng += p.lng;
-          if (p.updatedAt > latest) latest = p.updatedAt;
-        }
-        const avgLat = tLat / fresh.length;
-        const avgLng = tLng / fresh.length;
-
-        // Step 3: compute velocity using previous centroid state, avoiding cross-user teleport logic
-        let dLat = 0, dLng = 0;
-        const prevPhys = physicsRef.current[routeNumber];
-        
-        if (prevPhys && prevPhys.updatedAt < latest) {
-          const dt = latest - prevPhys.updatedAt;
+        if (prev && prev.updatedAt < loc.updatedAt) {
+          const dt = loc.updatedAt - prev.updatedAt;
           if (dt > 0) {
-            const vLat = (avgLat - prevPhys.lat) / dt;
-            const vLng = (avgLng - prevPhys.lng) / dt;
-            
-            // Step 4: sanity-check: ignore velocity if implied speed > 120 km/h.
-            // Project the velocity vector 1 000 ms forward from the real position
-            // and measure the resultant distance in metres — that IS metres/second.
+            const vLat = (loc.lat - prev.lat) / dt;
+            const vLng = (loc.lng - prev.lng) / dt;
+            // Sanity-check: reject if implied speed > 120 km/h (33.3 m/s).
             const speedMs = haversineMeters(
-              avgLat, avgLng,
-              avgLat + vLat * 1000,
-              avgLng + vLng * 1000,
+              loc.lat,
+              loc.lng,
+              loc.lat + vLat * 1000,
+              loc.lng + vLng * 1000,
             );
             if (speedMs < 33.3) {
               dLat = vLat;
               dLng = vLng;
             }
           }
+        } else if (
+          typeof loc.speed === "number" &&
+          typeof loc.heading === "number"
+        ) {
+          // Fall back to aggregator-computed speed+heading when available.
+          const headingRad = (loc.heading * Math.PI) / 180;
+          const cosLat = Math.cos((loc.lat * Math.PI) / 180);
+          dLat =
+            (loc.speed * Math.cos(headingRad)) / (111_111 * 1_000);
+          dLng =
+            (loc.speed * Math.sin(headingRad)) / (111_111 * cosLat * 1_000);
         }
 
         nextPhysics[routeNumber] = {
           routeNumber,
-          lat: avgLat,
-          lng: avgLng,
+          lat: loc.lat,
+          lng: loc.lng,
           dlat_per_ms: dLat,
           dlng_per_ms: dLng,
-          updatedAt: latest,
-          activePingers: fresh.length,
+          updatedAt: loc.updatedAt,
+          activePingers: loc.sourceCount ?? 1,
         };
 
         liveFleet.push({
           routeNumber,
-          lat: avgLat,
-          lng: avgLng,
-          activePingers: fresh.length,
-          updatedAt: latest,
+          lat: loc.lat,
+          lng: loc.lng,
+          activePingers: loc.sourceCount ?? 1,
+          updatedAt: loc.updatedAt,
           estimated: false,
         });
       }
@@ -159,8 +156,6 @@ export function useFleetState(scopeBusId?: string | null) {
     });
 
     // ── Dead Reckoning Ticker ────────────────────────────────────────────────
-    // Runs every 2 seconds; for routes whose last ping was 15–120 seconds ago,
-    // extrapolates position using the last known velocity vector.
     tickRef.current = setInterval(() => {
       const now = Date.now();
       const physics = physicsRef.current;
@@ -172,25 +167,13 @@ export function useFleetState(scopeBusId?: string | null) {
         const p = physics[routeNumber];
         const age = now - p.updatedAt;
 
-        if (age < DEAD_RECKON_AFTER_MS) {
-          // Fresh — live fleet update handles this; skip to avoid overwriting
-          continue;
-        }
-
-        if (age > DEAD_RECKON_MAX_MS) {
-          // Signal lost for > 2 min — drop from fleet entirely
-          continue;
-        }
-
-        // Extrapolate: pos = last_pos + velocity × elapsed_since_last_ping
-        const elapsed = age;
-        const estLat = p.lat + p.dlat_per_ms * elapsed;
-        const estLng = p.lng + p.dlng_per_ms * elapsed;
+        if (age < DEAD_RECKON_AFTER_MS) continue;
+        if (age > DEAD_RECKON_MAX_MS) continue;
 
         extrapolated.push({
           routeNumber,
-          lat: estLat,
-          lng: estLng,
+          lat: p.lat + p.dlat_per_ms * age,
+          lng: p.lng + p.dlng_per_ms * age,
           activePingers: p.activePingers,
           updatedAt: p.updatedAt,
           estimated: true,
@@ -199,8 +182,9 @@ export function useFleetState(scopeBusId?: string | null) {
 
       if (extrapolated.length > 0) {
         setFleet((prev) => {
-          // Replace live entries for routes that are now in dead-reckoning mode
-          const liveRoutes = new Set(prev.filter((b) => !b.estimated).map((b) => b.routeNumber));
+          const liveRoutes = new Set(
+            prev.filter((b) => !b.estimated).map((b) => b.routeNumber),
+          );
           const liveOnly = prev.filter((b) => !b.estimated);
           const toAdd = extrapolated.filter((b) => !liveRoutes.has(b.routeNumber));
           return [...liveOnly, ...toAdd];
@@ -212,7 +196,7 @@ export function useFleetState(scopeBusId?: string | null) {
       unsubscribe();
       if (tickRef.current) clearInterval(tickRef.current);
     };
-  }, []);
+  }, [scopeBusId]);
 
   return { fleet };
 }

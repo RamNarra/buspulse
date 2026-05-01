@@ -12,15 +12,26 @@ export type PeerLocation = {
 };
 
 /**
- * Subscribes to all individual tracker candidates for a given busId/route
- * and returns their raw locations so they can be shown as individual dots on the map.
- * This is what enables "see your friend's blue dot".
+ * Subscribes to raw `trackerCandidates/{busId}` and returns individual peer
+ * locations so they can be shown as dots on the map ("see your friend's dot").
+ *
+ * PRIVACY GATE: Only the elected tracker leader should call this with
+ * `isLeader = true`. All other callers receive an empty array immediately,
+ * preventing raw contributor locations from leaking to every viewer.
  */
-export function usePeerLocations(busId: string | null | undefined, myUid: string | null | undefined) {
+export function usePeerLocations(
+  busId: string | null | undefined,
+  myUid: string | null | undefined,
+  isLeader = false,
+) {
   const [peers, setPeers] = useState<PeerLocation[]>([]);
 
   useEffect(() => {
-    if (!busId) return;
+    // Privacy gate — non-leaders never subscribe to raw candidate positions.
+    if (!isLeader || !busId) {
+      setPeers([]);
+      return;
+    }
 
     const app = getFirebaseClientApp();
     if (!app) return;
@@ -34,7 +45,7 @@ export function usePeerLocations(busId: string | null | undefined, myUid: string
         return;
       }
 
-      const data = snapshot.val();
+      const data = snapshot.val() as Record<string, { lat?: number; lng?: number; updatedAt?: number }>;
       const now = Date.now();
       const activePeers: PeerLocation[] = [];
 
@@ -45,10 +56,10 @@ export function usePeerLocations(busId: string | null | undefined, myUid: string
         const candidate = data[uid];
         // Only show peers that are fresh (< 60 seconds old)
         if (
-          candidate.lat &&
-          candidate.lng &&
-          candidate.updatedAt &&
-          now - candidate.updatedAt < 60000
+          typeof candidate.lat === "number" &&
+          typeof candidate.lng === "number" &&
+          typeof candidate.updatedAt === "number" &&
+          now - candidate.updatedAt < 60_000
         ) {
           activePeers.push({
             uid,
@@ -63,7 +74,7 @@ export function usePeerLocations(busId: string | null | undefined, myUid: string
     });
 
     return () => unsubscribe();
-  }, [busId, myUid]);
+  }, [busId, myUid, isLeader]);
 
   return { peers };
 }

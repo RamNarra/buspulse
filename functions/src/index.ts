@@ -1,0 +1,139 @@
+import * as admin from "firebase-admin";
+import { onValueWritten } from "firebase-functions/v2/database";
+
+import { isLocationOutlier } from "./geo";
+import {
+  deriveLocationFromCandidates,
+  getHealthStatus,
+  isCandidateStale,
+} from "./scoring";
+import type { BusHealth, BusLocation, TrackerCandidate } from "./models";
+
+admin.initializeApp();
+const db = admin.database();
+
+// ── EMA state store (in-memory, per Cloud Function container instance) ────────
+// Survives across warm invocations; decays naturally when the instance recycles.
+const EMA_ALPHA = 0.4;
+const emaState: Record<
+  string,
+  { lat: number; lng: number; speed: number }
+> = {};
+
+// ── Aggregator function ───────────────────────────────────────────────────────
+
+/**
+ * Fires on every write to `trackerCandidates/{busId}/{uuid}`.
+ * 1. Reads all current candidates for the bus.
+ * 2. Rejects outliers using the previous canonical location as a reference.
+ * 3. Derives a weighted centroid via the scoring model.
+ * 4. Applies EMA smoothing (α = 0.4) to suppress GPS jitter.
+ * 5. Atomically writes the result to `busLocations/{busId}` and
+ *    `busHealth/{busId}` using the Admin SDK (only trusted path that can
+ *    write to those nodes per database.rules.json).
+ */
+export const aggregateBusLocation = onValueWritten(
+  {
+    ref: "trackerCandidates/{busId}/{uuid}",
+    region: "asia-south1",
+  },
+  async (event) => {
+    const busId = event.params.busId;
+
+    // 1. Read all candidates for this bus in a single round-trip
+    const snap = await db.ref(`trackerCandidates/${busId}`).get();
+    if (!snap.exists()) {
+      // Bus just cleared out — mark offline
+      await db.ref(`busHealth/${busId}`).update({
+        status: "offline",
+        lastDerivedAt: Date.now(),
+        note: "No active contributors.",
+      });
+      return;
+    }
+
+    const raw = snap.val() as Record<string, unknown>;
+    const now = Date.now();
+
+    // 2. Validate and cast candidates
+    const candidates: TrackerCandidate[] = Object.values(raw).filter(
+      (c): c is TrackerCandidate =>
+        typeof c === "object" &&
+        c !== null &&
+        typeof (c as Record<string, unknown>).lat === "number" &&
+        typeof (c as Record<string, unknown>).lng === "number" &&
+        typeof (c as Record<string, unknown>).submittedAt === "number" &&
+        typeof (c as Record<string, unknown>).accuracy === "number",
+    );
+
+    // 3. Fetch previous canonical location to use as outlier baseline
+    const prevSnap = await db.ref(`busLocations/${busId}`).get();
+    const prev: BusLocation | null = prevSnap.exists()
+      ? (prevSnap.val() as BusLocation)
+      : null;
+
+    // 4. Reject teleport outliers (> 120 km/h implied speed vs. last known fix)
+    const filtered = prev
+      ? candidates.filter(
+          (c) =>
+            !isLocationOutlier(
+              prev.lat,
+              prev.lng,
+              prev.updatedAt,
+              c.lat,
+              c.lng,
+              c.submittedAt,
+            ),
+        )
+      : candidates;
+
+    // 5. Derive weighted centroid
+    const derived = deriveLocationFromCandidates(filtered, now);
+    const staleCandidateCount = filtered.filter((c) =>
+      isCandidateStale(c, now),
+    ).length;
+
+    if (!derived) {
+      const health: Partial<BusHealth> = {
+        busId,
+        status: "offline",
+        activeContributors: 0,
+        staleCandidateCount,
+        lastDerivedAt: now,
+        note: "All candidates are stale or were rejected as outliers.",
+      };
+      await db.ref(`busHealth/${busId}`).set(health);
+      return;
+    }
+
+    // 6. EMA smoothing — blends new reading with previous smoothed position
+    const prevEma = emaState[busId];
+    if (prevEma) {
+      derived.lat = EMA_ALPHA * derived.lat + (1 - EMA_ALPHA) * prevEma.lat;
+      derived.lng = EMA_ALPHA * derived.lng + (1 - EMA_ALPHA) * prevEma.lng;
+      derived.speed =
+        EMA_ALPHA * (derived.speed ?? 0) + (1 - EMA_ALPHA) * prevEma.speed;
+    }
+    emaState[busId] = {
+      lat: derived.lat,
+      lng: derived.lng,
+      speed: derived.speed ?? 0,
+    };
+
+    // 7. Compute health
+    const health: BusHealth = {
+      busId,
+      status: getHealthStatus(derived.confidence, staleCandidateCount),
+      activeContributors: filtered.length - staleCandidateCount,
+      staleCandidateCount,
+      lastDerivedAt: now,
+      note: `Derived from ${derived.sourceCount} active signal(s). EMA applied.`,
+    };
+
+    // 8. Atomic write — only Admin SDK can write here (clients cannot)
+    await db.ref().update({
+      [`busLocations/${busId}`]: derived,
+      [`busHealth/${busId}`]: health,
+    });
+  },
+);
