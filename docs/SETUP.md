@@ -66,3 +66,18 @@ These cannot be completed by code scaffolding alone:
 ## 9. Server-Side Follow-Up
 - One-active-session enforcement should be implemented in trusted backend logic.
 - Firestore reads for parent-linked visibility should be brokered through server APIs for stronger policy control.
+
+## 10. Firebase App Check (Phase 1.4)
+App Check rejects unsigned clients before any Realtime Database or Cloud Functions request, eliminating drive-by abuse.
+
+### Setup steps
+1. **GCP Console → Security → reCAPTCHA Enterprise**: Create a new key.
+   - Type: *Score-based (no CAPTCHA)* (invisible to real users)
+   - Domain: your deployed hostname (e.g. `buspulse.vercel.app`)
+2. **Firebase Console → App Check → Apps**: click your web app → *Register*.
+   - Choose *reCAPTCHA Enterprise* provider → paste the site key.
+3. Copy the site key to `NEXT_PUBLIC_RECAPTCHA_ENTERPRISE_SITE_KEY` in `.env.local`.
+4. **Firebase Console → App Check → APIs**: enable enforcement for *Realtime Database* and *Cloud Functions*.
+5. **Local dev**: leave `NEXT_PUBLIC_RECAPTCHA_ENTERPRISE_SITE_KEY` blank.
+   The client automatically sets `FIREBASE_APPCHECK_DEBUG_TOKEN = true` when `NODE_ENV !== production`, so the emulator suite and local dev server work without a real key.
+6. **Debug token for CI/CD**: generate a debug token in Firebase Console → App Check → your app → *Manage debug tokens*, then set `FIREBASE_APPCHECK_DEBUG_TOKEN=<token>` in your CI environment.

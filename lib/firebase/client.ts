@@ -1,4 +1,5 @@
 import { getApp, getApps, initializeApp, type FirebaseApp } from "firebase/app";
+import { initializeAppCheck, ReCaptchaEnterpriseProvider } from "firebase/app-check";
 
 import { getConfigError, getPublicRuntimeEnv, getSetupDiagnostics } from "@/lib/config/env";
 
@@ -49,6 +50,30 @@ function initIfNeeded() {
   const config = buildConfig();
   try {
     cachedApp = getApps().length ? getApp() : initializeApp(config);
+
+    // ── Firebase App Check (Phase 1.4) ────────────────────────────────────
+    // Rejects unsigned clients before any RTDB / Functions request.
+    // Only initializes when running in a browser and a site key is configured.
+    if (typeof window !== "undefined") {
+      const siteKey = getPublicRuntimeEnv().NEXT_PUBLIC_RECAPTCHA_ENTERPRISE_SITE_KEY?.trim();
+      if (process.env.NODE_ENV !== "production" && !siteKey) {
+        // Allow debug token in local dev so emulators still work
+        // @ts-expect-error firebase debug token global
+        self.FIREBASE_APPCHECK_DEBUG_TOKEN = true;
+      }
+      if (siteKey || process.env.NODE_ENV !== "production") {
+        try {
+          initializeAppCheck(cachedApp, {
+            provider: new ReCaptchaEnterpriseProvider(
+              siteKey ?? "debug-placeholder",
+            ),
+            isTokenAutoRefreshEnabled: true,
+          });
+        } catch {
+          // App Check already initialized (e.g., HMR in dev) — ignore
+        }
+      }
+    }
   } catch (error) {
     cachedError =
       error instanceof Error

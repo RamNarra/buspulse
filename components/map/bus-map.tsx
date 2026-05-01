@@ -2,18 +2,70 @@
 
 import { useEffect, useState, useRef } from "react";
 import { APIProvider, Map, AdvancedMarker, useMap } from "@vis.gl/react-google-maps";
-import { Map as MapIcon, MapPin, Bus as BusIcon } from "lucide-react";
+import { Map as MapIcon, Bus as BusIcon } from "lucide-react";
 
 import { getPublicRuntimeEnv, getSetupStatus } from "@/lib/config/env";
 import type { Bus, BusLocation } from "@/types/models";
 import type { FleetBus } from "@/hooks/use-fleet-state";
 import { useAppStore } from "@/lib/store/app-store";
+import { useInterpolatedPosition } from "@/hooks/use-interpolated-position";
 
 type BusMapProps = {
   bus: Bus;
   busLocation: BusLocation | null;
   fleet?: FleetBus[];
 };
+
+// ── AnimatedBusMarker ─────────────────────────────────────────────────────────
+// Each fleet bus gets its own component instance so that `useInterpolatedPosition`
+// can manage one RAF animation loop per marker independently.
+function AnimatedBusMarker({
+  fleetBus,
+  isCurrentRoute,
+}: {
+  fleetBus: FleetBus;
+  isCurrentRoute: boolean;
+}) {
+  const target = {
+    lat: fleetBus.lat,
+    lng: fleetBus.lng,
+    heading: undefined as number | undefined,
+    updatedAt: fleetBus.updatedAt,
+  };
+  const pos = useInterpolatedPosition(target);
+
+  if (!pos) return null;
+
+  return (
+    <AdvancedMarker
+      key={fleetBus.routeNumber}
+      position={{ lat: pos.lat, lng: pos.lng }}
+      title={`Route ${fleetBus.routeNumber}`}
+      zIndex={50}
+    >
+      <div
+        className="relative group"
+        style={{
+          opacity: fleetBus.estimated ? 0.5 : 1,
+          transition: "opacity 0.5s",
+          // Rotate marker to match heading when available
+          transform: pos.heading != null ? `rotate(${pos.heading}deg)` : undefined,
+        }}
+      >
+        <div className="absolute -top-6 left-1/2 -translate-x-1/2 bg-slate-900 text-white text-xs font-bold px-2 py-1 rounded shadow-lg whitespace-nowrap"
+          style={{ transform: pos.heading != null ? `rotate(-${pos.heading}deg)` : undefined }}
+        >
+          Route {fleetBus.routeNumber}{fleetBus.estimated ? " ~" : ""}
+        </div>
+        <div
+          className={`text-slate-900 rounded-xl p-2 shadow-xl border-2 ${fleetBus.estimated ? "border-dashed border-amber-400/60" : "border-white"} ${isCurrentRoute ? "bg-indigo-400" : "bg-amber-400"}`}
+        >
+          <BusIcon className="w-5 h-5" />
+        </div>
+      </div>
+    </AdvancedMarker>
+  );
+}
 
 function MapCentering({ 
   userLocation 
@@ -114,21 +166,11 @@ export function BusMap({ bus, busLocation, fleet = [] }: BusMapProps) {
           mapTypeId={mapType}
         >
           {fleet.map((fleetBus) => (
-            <AdvancedMarker 
+            <AnimatedBusMarker
               key={fleetBus.routeNumber}
-              position={{ lat: fleetBus.lat, lng: fleetBus.lng }} 
-              title={`Route ${fleetBus.routeNumber}`}
-              zIndex={50}
-            >
-              <div className="relative group" style={{ opacity: fleetBus.estimated ? 0.5 : 1, transition: "opacity 0.5s" }}>
-                <div className="absolute -top-6 left-1/2 -translate-x-1/2 bg-slate-900 text-white text-xs font-bold px-2 py-1 rounded shadow-lg whitespace-nowrap">
-                  Route {fleetBus.routeNumber}{fleetBus.estimated ? " ~" : ""}
-                </div>
-                <div className={`text-slate-900 rounded-xl p-2 shadow-xl border-2 ${fleetBus.estimated ? "border-dashed border-amber-400/60" : "border-white"} ${fleetBus.routeNumber === bus.code ? "bg-indigo-400" : "bg-amber-400"}`}>
-                  <BusIcon className="w-5 h-5" />
-                </div>
-              </div>
-            </AdvancedMarker>
+              fleetBus={fleetBus}
+              isCurrentRoute={fleetBus.routeNumber === bus.code}
+            />
           ))}
 
           {/* Your own location — blue dot */}

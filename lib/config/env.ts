@@ -14,6 +14,7 @@ const publicEnvSchema = z.object({
   NEXT_PUBLIC_GOOGLE_MAPS_API_KEY: z.string().optional(),
   NEXT_PUBLIC_ALLOWED_COLLEGE_DOMAINS: z.string().optional(),
   NEXT_PUBLIC_APP_NAME: z.string().optional(),
+  NEXT_PUBLIC_RECAPTCHA_ENTERPRISE_SITE_KEY: z.string().optional(),
 });
 
 export type PublicRuntimeEnv = z.infer<typeof publicEnvSchema>;
@@ -46,6 +47,8 @@ function parseEnv(): PublicRuntimeEnv {
     NEXT_PUBLIC_ALLOWED_COLLEGE_DOMAINS:
       process.env.NEXT_PUBLIC_ALLOWED_COLLEGE_DOMAINS,
     NEXT_PUBLIC_APP_NAME: process.env.NEXT_PUBLIC_APP_NAME,
+    NEXT_PUBLIC_RECAPTCHA_ENTERPRISE_SITE_KEY:
+      process.env.NEXT_PUBLIC_RECAPTCHA_ENTERPRISE_SITE_KEY,
   };
 
   const result = publicEnvSchema.safeParse(rawEnv);
@@ -65,6 +68,7 @@ function parseEnv(): PublicRuntimeEnv {
     NEXT_PUBLIC_GOOGLE_MAPS_API_KEY: undefined,
     NEXT_PUBLIC_ALLOWED_COLLEGE_DOMAINS: undefined,
     NEXT_PUBLIC_APP_NAME: undefined,
+    NEXT_PUBLIC_RECAPTCHA_ENTERPRISE_SITE_KEY: undefined,
   };
 }
 

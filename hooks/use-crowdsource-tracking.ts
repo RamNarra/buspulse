@@ -91,6 +91,15 @@ export function useCrowdsourceTracking(busStops: BusStop[] = []) {
   const lastLeadershipRenewRef = useRef<number>(0);
   const currentLeaderRef = useRef<{ uid?: string; ts?: number } | null>(null);
 
+  // Upload coalescing (Phase 1.4): suppress writes that are < 2 s apart and
+  // don't represent a meaningful position change (< 5 m AND < 5° heading change).
+  const lastUploadRef = useRef<{
+    ts: number;
+    lat: number;
+    lng: number;
+    heading: number;
+  } | null>(null);
+
   // Ephemeral UUID for pseudo-anonymous tracking
   const opaqueIdRef = useRef<string | null>(null);
 
@@ -363,10 +372,37 @@ export function useCrowdsourceTracking(busStops: BusStop[] = []) {
       speedMs: number,
       visible: boolean,
     ) {
-      if (newState !== trackingStateRef.current) {
+      const stateChanged = newState !== trackingStateRef.current;
+      if (stateChanged) {
         trackingStateRef.current = newState;
         setTrackingState(newState);
       }
+
+      // ── Upload coalescing (Phase 1.4) ─────────────────────────────────────
+      // Skip the Firebase write unless: state changed, throttle cleared, OR
+      // position moved meaningfully (5 m / 5° heading change).
+      const now = Date.now();
+      const prev = lastUploadRef.current;
+      if (!stateChanged && prev) {
+        const elapsedMs = now - prev.ts;
+        const distM = haversineMeters(prev.lat, prev.lng, lat, lng);
+        const newHeading =
+          distM > 0
+            ? (Math.atan2(lng - prev.lng, lat - prev.lat) * 180) / Math.PI
+            : prev.heading;
+        const headingDelta = Math.abs(((newHeading - prev.heading + 540) % 360) - 180);
+
+        if (elapsedMs < 2_000) return;             // throttle: < 2 s
+        if (distM < 5 && headingDelta < 5) return; // no meaningful change
+      }
+
+      // Update coalescing reference point
+      const newHeadingForRef =
+        prev && haversineMeters(prev.lat, prev.lng, lat, lng) > 0
+          ? (Math.atan2(lng - prev.lng, lat - prev.lat) * 180) / Math.PI
+          : prev?.heading ?? 0;
+      lastUploadRef.current = { ts: now, lat, lng, heading: newHeadingForRef };
+      // ─────────────────────────────────────────────────────────────────────
 
       if (newState === "BOARDED") {
         if (!lastBoardedAtRef.current) lastBoardedAtRef.current = Date.now();
