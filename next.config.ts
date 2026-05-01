@@ -10,6 +10,31 @@ const nextConfig: NextConfig = {
       },
     ];
   },
+
+  async headers() {
+    return [
+      {
+        // Dynamic versioned service worker — must never be cached by the browser
+        // or a CDN. The browser must fetch it fresh on every page load to detect
+        // new deploys automatically.
+        source: "/api/sw",
+        headers: [
+          { key: "Cache-Control", value: "no-cache, no-store, must-revalidate" },
+          { key: "Pragma", value: "no-cache" },
+          { key: "Service-Worker-Allowed", value: "/" },
+        ],
+      },
+      {
+        // Legacy static SW — also prevent CDN caching so existing users migrate
+        // off it and onto /api/sw on their next visit.
+        source: "/sw.js",
+        headers: [
+          { key: "Cache-Control", value: "no-cache, no-store, must-revalidate" },
+          { key: "Pragma", value: "no-cache" },
+        ],
+      },
+    ];
+  },
 };
 
 export default withSentryConfig(nextConfig, {
