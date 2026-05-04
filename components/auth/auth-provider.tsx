@@ -54,8 +54,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const kickSelf = useCallback(
     async (auth: ReturnType<typeof getAuth>) => {
       console.warn("[AuthProvider] Session invalidated by another device. Signing out.");
-      alert("You have been logged out because your account was accessed from another device (1 session limit).");
-      await signOut(auth);
+      try {
+        await signOut(auth);
+      } catch (e) {
+        console.error("Sign out failed", e);
+      }
+      setTimeout(() => {
+        window.location.href = "/login";
+      }, 100);
     },
     [],
   );

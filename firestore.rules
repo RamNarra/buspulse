@@ -19,13 +19,13 @@ service cloud.firestore {
     // Handles Parents (using their studentId claim) and Students (trying uid or student-uid as doc IDs).
     function studentRouteId() {
       return ('role' in request.auth.token && request.auth.token.role == 'parent')
-        ? (get(/databases/$(database)/documents/students/$(request.auth.token.studentId)).data.routeId)
+        ? get(/databases/$(database)/documents/students/$(request.auth.token.studentId)).data.routeId
         : (
             get(/databases/$(database)/documents/students/$(request.auth.uid)) != null 
               ? get(/databases/$(database)/documents/students/$(request.auth.uid)).data.routeId
               : (
-                  get(/databases/$(database)/documents/students/student-$(request.auth.uid)) != null
-                    ? get(/databases/$(database)/documents/students/student-$(request.auth.uid)).data.routeId
+                  get(/databases/$(database)/documents/students/$('student-' + request.auth.uid)) != null
+                    ? get(/databases/$(database)/documents/students/$('student-' + request.auth.uid)).data.routeId
                     : null
                 )
           );
