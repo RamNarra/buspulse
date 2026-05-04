@@ -95,8 +95,7 @@ exports.aggregateBusLocation = (0, database_1.onValueWritten)({
         c !== null &&
         typeof c.lat === "number" &&
         typeof c.lng === "number" &&
-        typeof c.submittedAt === "number" &&
-        typeof c.accuracy === "number");
+        (typeof c.submittedAt === "number" || typeof c.updatedAt === "number"));
     // 3. Fetch previous canonical location to use as outlier baseline
     const prevSnap = await db.ref(`busLocations/${busId}`).get();
     const prev = prevSnap.exists()
@@ -104,7 +103,7 @@ exports.aggregateBusLocation = (0, database_1.onValueWritten)({
         : null;
     // 4. Reject teleport outliers (> 120 km/h implied speed vs. last known fix)
     const filtered = prev
-        ? candidates.filter((c) => !(0, geo_1.isLocationOutlier)(prev.lat, prev.lng, prev.updatedAt, c.lat, c.lng, c.submittedAt))
+        ? candidates.filter((c) => !(0, geo_1.isLocationOutlier)(prev.lat, prev.lng, prev.updatedAt, c.lat, c.lng, (c.submittedAt || c.updatedAt || Date.now())))
         : candidates;
     // 5. Derive weighted centroid
     const derived = (0, scoring_1.deriveLocationFromCandidates)(filtered, now);

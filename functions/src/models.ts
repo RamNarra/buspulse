@@ -7,9 +7,10 @@ export type TrackerCandidate = {
   lng: number;
   heading?: number;
   speed?: number;
-  accuracy: number;
+  accuracy?: number;
   routeMatchScore: number;
-  submittedAt: number;
+  submittedAt?: number;
+  updatedAt?: number;
   source: "gps" | "network" | "passive";
 };
 

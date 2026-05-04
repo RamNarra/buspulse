@@ -71,6 +71,9 @@ type BusStop = { lat: number; lng: number };
 // ── Hook ──────────────────────────────────────────────────────────────────────
 
 export function useCrowdsourceTracking(busStops: BusStop[] = []) {
+  const [manualOverride, _setManualOverride] = useState<boolean | null>(null);
+  const manualOverrideRef = useRef<boolean | null>(null);
+  const setManualOverride = (val: boolean | null) => { manualOverrideRef.current = val; _setManualOverride(val); };
   const { user } = useAuthContext();
   const { student } = useCurrentStudentProfile(user);
 
@@ -318,6 +321,10 @@ export function useCrowdsourceTracking(busStops: BusStop[] = []) {
 
         // ── Determine new state ───────────────────────────────────────────
         const busCentroid = busLocationRef.current;
+        if (manualOverrideRef.current !== null) {
+          commitState(manualOverrideRef.current ? "BOARDED" : "WAITING", lat, lng, speedMs, visible);
+          return;
+        }
         let newState: TrackingState = "WAITING";
 
         if (busCentroid) {
@@ -432,5 +439,5 @@ export function useCrowdsourceTracking(busStops: BusStop[] = []) {
     };
   }, [user, student, busStops]);
 
-  return { trackingState, isLeader, peerCount };
+  return { trackingState, isLeader, peerCount, manualOverride, setManualOverride };
 }

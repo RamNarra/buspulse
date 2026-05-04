@@ -78,8 +78,7 @@ export const aggregateBusLocation = onValueWritten(
         c !== null &&
         typeof (c as Record<string, unknown>).lat === "number" &&
         typeof (c as Record<string, unknown>).lng === "number" &&
-        typeof (c as Record<string, unknown>).submittedAt === "number" &&
-        typeof (c as Record<string, unknown>).accuracy === "number",
+        (typeof (c as Record<string, unknown>).submittedAt === "number" || typeof (c as Record<string, unknown>).updatedAt === "number"),
     );
 
     // 3. Fetch previous canonical location to use as outlier baseline
@@ -98,7 +97,7 @@ export const aggregateBusLocation = onValueWritten(
               prev.updatedAt,
               c.lat,
               c.lng,
-              c.submittedAt,
+              (c.submittedAt || c.updatedAt || Date.now()),
             ),
         )
       : candidates;

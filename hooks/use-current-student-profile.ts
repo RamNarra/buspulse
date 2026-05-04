@@ -49,7 +49,7 @@ export function useCurrentStudentProfile(user: User | null | undefined) {
 
       if (!result.ok) {
         // Fallback: infer from students.json!
-        let resolvedRouteId = "15"; // default route
+        let resolvedRouteId: string | undefined = undefined; // No default route
         let inferredFullName = email?.split('@')[0] || "Student";
         
         let rollNoMatch = email?.split('@')[0].toLowerCase() || "";
@@ -62,6 +62,12 @@ export function useCurrentStudentProfile(user: User | null | undefined) {
         } else if (email === "ramcharannarra8@gmail.com") {
           resolvedRouteId = "15";
           inferredFullName = "Ram Charan";
+        }
+
+        if (!resolvedRouteId) {
+          setError("No assigned route found for this email.");
+          setIsLoading(false);
+          return;
         }
 
         const fallbackStudent: Student = {

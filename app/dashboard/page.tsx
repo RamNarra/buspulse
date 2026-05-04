@@ -20,9 +20,9 @@ export default function DashboardPage() {
   const { student, error: studentError, isLoading: studentLoading } =
     useCurrentStudentProfile(user);
 
-  const { trackingState, isLeader, peerCount } = useCrowdsourceTracking();
+  const { trackingState, isLeader, peerCount, manualOverride, setManualOverride } = useCrowdsourceTracking();
   const busId = (student ?? mockStudent).busId ?? mockBus.id;
-  const { fleet } = useFleetState(busId);
+  const { fleet } = useFleetState(); // GLOBAL BUS VISIBILITY OVERRIDE
 
   useEffect(() => {
     if (mode === "live" && !authLoading && !user) {
@@ -186,6 +186,38 @@ export default function DashboardPage() {
                   {healthStatus === "offline" && "⚠️ Bus signal offline — contact college transport"}
                 </p>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      
+      {/* MANUAL OVERRIDE TOGGLE */}
+      {!isUnhealthy && mode === "live" && user && (
+        <div className="absolute bottom-8 left-1/2 -translate-x-1/2 z-40 w-11/12 max-w-sm">
+          <div className="bg-slate-900/90 backdrop-blur-xl border border-white/10 p-4 rounded-3xl shadow-2xl flex items-center justify-between">
+            <div>
+              <p className="text-sm font-bold text-white leading-tight">Are you in the bus?</p>
+              <p className="text-xs text-slate-400 font-medium">Help track the bus location</p>
+            </div>
+            
+            <div className="flex bg-slate-800 rounded-full p-1 border border-white/5 relative">
+              <button 
+                onClick={() => setManualOverride(false)}
+                className={`relative z-10 px-4 py-1.5 rounded-full text-sm font-bold transition-colors ${manualOverride === false ? 'text-white' : 'text-slate-400 hover:text-white'}`}
+              >
+                No
+              </button>
+              <button 
+                onClick={() => setManualOverride(true)}
+                className={`relative z-10 px-4 py-1.5 rounded-full text-sm font-bold transition-colors ${manualOverride === true || trackingState === 'BOARDED' ? 'text-white' : 'text-slate-400 hover:text-white'}`}
+              >
+                Yes
+              </button>
+              {/* Highlight Pill */}
+              <div 
+                className={`absolute top-1 bottom-1 w-1/2 bg-indigo-500 rounded-full transition-transform duration-300 ease-out ${(manualOverride === true || (manualOverride === null && trackingState === 'BOARDED')) ? 'translate-x-full' : 'translate-x-0'}`}
+              />
             </div>
           </div>
         </div>

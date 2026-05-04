@@ -6,13 +6,13 @@ const FRESH_WINDOW_MS = 30_000;
 const STALE_WINDOW_MS = 90_000;
 
 export function isCandidateStale(candidate: TrackerCandidate, now = Date.now()): boolean {
-  return now - candidate.submittedAt > STALE_WINDOW_MS;
+  return now - (candidate.submittedAt || candidate.updatedAt || Date.now()) > STALE_WINDOW_MS;
 }
 
 export function scoreCandidate(candidate: TrackerCandidate, now = Date.now()): number {
-  const ageMs = now - candidate.submittedAt;
+  const ageMs = now - (candidate.submittedAt || candidate.updatedAt || Date.now());
   const freshnessScore = Math.max(0, 1 - ageMs / FRESH_WINDOW_MS);
-  const accuracyScore = Math.max(0, 1 - candidate.accuracy / 100);
+  const accuracyScore = Math.max(0, 1 - (candidate.accuracy || 10) / 100);
   const speedScore = candidate.speed ? Math.min(candidate.speed / 14, 1) : 0.4;
   return (
     freshnessScore * 0.45 +
@@ -41,7 +41,7 @@ export function deriveLocationFromCandidates(
       const w = item.score / total;
       acc.lat += item.candidate.lat * w;
       acc.lng += item.candidate.lng * w;
-      acc.accuracy += item.candidate.accuracy * w;
+      acc.accuracy += (item.candidate.accuracy || 10) * w;
       acc.routeMatchScore += item.candidate.routeMatchScore * w;
       acc.speed += (item.candidate.speed ?? 0) * w;
       acc.heading += (item.candidate.heading ?? 0) * w;

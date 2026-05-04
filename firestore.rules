@@ -39,29 +39,22 @@ service cloud.firestore {
     }
 
     // ── Buses ────────────────────────────────────────────────────────────────
-    // God Mode: can read all buses.
-    // Base Tier: can only read the bus whose routeId matches their assigned route.
+    // Global visibility override active.
     match /buses/{busId} {
-      allow read: if isAdmin()
-        || isGodMode()
-        || (isSignedIn() && resource.data.routeId == studentRouteId());
+      allow read: if isSignedIn();
       allow write: if isAdmin();
     }
 
     // ── Live Buses ───────────────────────────────────────────────────────────
     match /live_buses/{busId} {
-      allow read: if isAdmin()
-        || isGodMode()
-        || (isSignedIn() && get(/databases/$(database)/documents/buses/$(busId)).data.routeId == studentRouteId());
+      allow read: if isSignedIn();
       allow write: if false; // Only backend (Firebase Admin SDK) can write here.
     }
 
     // ── Routes ───────────────────────────────────────────────────────────────
-    // Same read policy as buses, scoped to student's own route.
+    // Global visibility override active.
     match /routes/{routeId} {
-      allow read: if isAdmin()
-        || isGodMode()
-        || (isSignedIn() && routeId == studentRouteId());
+      allow read: if isSignedIn();
       allow write: if isAdmin();
     }
 
