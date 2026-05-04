@@ -51,7 +51,7 @@ async function getBigQueryClient() {
 export const exportBusLocationToBigQuery = onValueWritten(
   {
     ref: "busLocations/{busId}",
-    region: "asia-south1",
+    region: "asia-southeast1",
   },
   async (event) => {
     const busId = event.params.busId;

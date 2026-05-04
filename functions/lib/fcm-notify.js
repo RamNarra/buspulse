@@ -63,7 +63,7 @@ const DEDUP_WINDOW_MS = 5 * 60000; // 5 minutes
 const notifiedAt = {};
 exports.notifyApproachingStudents = (0, database_1.onValueWritten)({
     ref: "busLocations/{busId}",
-    region: "asia-south1",
+    region: "asia-southeast1",
 }, async (event) => {
     const busId = event.params.busId;
     const location = event.data.after.val();

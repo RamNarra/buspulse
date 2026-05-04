@@ -65,7 +65,7 @@ const emaState = {};
  */
 exports.aggregateBusLocation = (0, database_1.onValueWritten)({
     ref: "trackerCandidates/{busId}/{uuid}",
-    region: "asia-south1",
+    region: "asia-southeast1",
 }, async (event) => {
     const busId = event.params.busId;
     // 1. Read all candidates for this bus in a single round-trip

@@ -1,5 +1,5 @@
 // ── Anomaly detection — scheduled Cloud Function (Phase 2.4) ─────────────────
-// Runs every 30 seconds. Reads all busLocations + busHealth from RTDB,
+// Runs every 1 minutes. Reads all busLocations + busHealth from RTDB,
 // fetches route polylines from Firestore (cached 5 min in-process), and
 // classifies each bus as healthy / degraded / stale / deviated / stranded / ghost.
 // Writes updated busHealth.status back to RTDB via Admin SDK.
@@ -10,14 +10,12 @@ import { onSchedule } from "firebase-functions/v2/scheduler";
 import { perpDistToPolyline, classifyAnomaly } from "./anomaly-math";
 import type { BusHealth, BusHealthStatus, BusLocation, RouteDoc } from "./models";
 
-const db = admin.database();
-const fs = admin.firestore();
-
 // ── In-process route cache ────────────────────────────────────────────────────
 const ROUTE_CACHE_TTL_MS = 5 * 60_000;
 const routeCache = new Map<string, { doc: RouteDoc; ts: number }>();
 
 async function getRouteCached(routeId: string): Promise<RouteDoc | null> {
+  const fs = admin.firestore();
   const hit = routeCache.get(routeId);
   if (hit && Date.now() - hit.ts < ROUTE_CACHE_TTL_MS) return hit.doc;
   try {
@@ -39,8 +37,10 @@ const deviatedSince: Record<string, number | null> = {};
 // ── Scheduled function ────────────────────────────────────────────────────────
 
 export const detectAnomalies = onSchedule(
-  { schedule: "every 30 seconds", region: "asia-south1" },
+  { schedule: "every 1 minutes", region: "asia-southeast1" },
   async () => {
+    const db = admin.database();
+    const fs = admin.firestore();
     const now = Date.now();
 
     // 1. Read all current bus locations + health

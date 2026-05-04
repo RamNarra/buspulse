@@ -41,7 +41,7 @@ const emaState: Record<
 export const aggregateBusLocation = onValueWritten(
   {
     ref: "trackerCandidates/{busId}/{uuid}",
-    region: "asia-south1",
+    region: "asia-southeast1",
   },
   async (event) => {
     const busId = event.params.busId;
