@@ -28,7 +28,7 @@
 //  For now the endpoint is protected by PUBSUB_PUSH_SECRET as a simpler guard.
 
 import { NextRequest, NextResponse } from "next/server";
-import { adminDb } from "@/lib/firebase/admin";
+import { adminDb, adminFirestore } from "@/lib/firebase/admin";
 import { getSecret } from "@/lib/config/secrets";
 
 const PUBSUB_PUSH_SECRET_NAME = "PUBSUB_PUSH_SECRET";
@@ -84,7 +84,14 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Missing required fields: busId, lat, lng" }, { status: 400 });
   }
 
-  if (!adminDb) {
+  if (
+    lat < -90 || lat > 90 ||
+    lng < -180 || lng > 180
+  ) {
+    return NextResponse.json({ error: "Invalid coordinates out of bounds" }, { status: 400 });
+  }
+
+  if (!adminDb || !adminFirestore) {
     return NextResponse.json({ error: "Firebase Admin not initialized" }, { status: 503 });
   }
 
@@ -105,6 +112,18 @@ export async function POST(req: NextRequest) {
 
   try {
     await adminDb.ref(`trackerCandidates/${busId}/${candidateId}`).set(candidate);
+    
+    // Write directly to firestore so frontend Map has access to immediate real-time live positions via snapshot
+    await adminFirestore.collection("live_buses").doc(busId).set({
+      lat,
+      lng,
+      speed: speed ?? null,
+      heading: heading ?? null,
+      activePingers: 1,
+      estimated: false,
+      updatedAt: ts
+    }, { merge: true });
+
     return NextResponse.json({ ok: true, candidateId });
   } catch (err) {
     console.error("[pubsub/gps] RTDB write failed", err);

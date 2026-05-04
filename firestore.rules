@@ -16,9 +16,19 @@ service cloud.firestore {
     }
 
     // Returns the routeId stored on the authenticated user's student profile.
-    // Used to enforce Base-Tier users can only see their own route.
+    // Handles Parents (using their studentId claim) and Students (trying uid or student-uid as doc IDs).
     function studentRouteId() {
-      return get(/databases/$(database)/documents/students/$(request.auth.uid)).data.routeId;
+      return ('role' in request.auth.token && request.auth.token.role == 'parent')
+        ? (get(/databases/$(database)/documents/students/$(request.auth.token.studentId)).data.routeId)
+        : (
+            get(/databases/$(database)/documents/students/$(request.auth.uid)) != null 
+              ? get(/databases/$(database)/documents/students/$(request.auth.uid)).data.routeId
+              : (
+                  get(/databases/$(database)/documents/students/student-$(request.auth.uid)) != null
+                    ? get(/databases/$(database)/documents/students/student-$(request.auth.uid)).data.routeId
+                    : null
+                )
+          );
     }
 
     // ── Students ────────────────────────────────────────────────────────────
@@ -36,6 +46,14 @@ service cloud.firestore {
         || isGodMode()
         || (isSignedIn() && resource.data.routeId == studentRouteId());
       allow write: if isAdmin();
+    }
+
+    // ── Live Buses ───────────────────────────────────────────────────────────
+    match /live_buses/{busId} {
+      allow read: if isAdmin()
+        || isGodMode()
+        || (isSignedIn() && get(/databases/$(database)/documents/buses/$(busId)).data.routeId == studentRouteId());
+      allow write: if false; // Only backend (Firebase Admin SDK) can write here.
     }
 
     // ── Routes ───────────────────────────────────────────────────────────────
