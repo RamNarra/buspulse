@@ -53,8 +53,8 @@ const NEAR_STOP_RADIUS_M = 40;
 /** Minimum number of co-located, co-moving peers required for "Mutual Discovery". */
 const MUTUAL_DISCOVERY_PEERS = 2;
 
-/** Speed (m/s) each peer must exceed for Mutual Discovery to trigger. */
-const MUTUAL_DISCOVERY_SPEED_MS = 1.5;
+/** Speed (m/s) each peer must exceed for Mutual Discovery to trigger. (0.5 to make it easy to trigger while testing) */
+const MUTUAL_DISCOVERY_SPEED_MS = 0.5;
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 

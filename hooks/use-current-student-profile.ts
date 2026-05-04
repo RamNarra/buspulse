@@ -52,15 +52,13 @@ export function useCurrentStudentProfile(user: User | null | undefined) {
         let resolvedRouteId = "15"; // default route
         let inferredFullName = email?.split('@')[0] || "Student";
         
-        if (email === "ramcharannarra8@gmail.com") {
+        let rollNoMatch = email?.split('@')[0].toLowerCase() || "";
+        if (studentsData[rollNoMatch]) {
+          resolvedRouteId = studentsData[rollNoMatch];
+          inferredFullName = `Student (${rollNoMatch.toUpperCase()})`;
+        } else if (email === "ramcharannarra8@gmail.com") {
           resolvedRouteId = "15";
           inferredFullName = "Ram Charan";
-        } else if (email?.endsWith("sreenidhi.edu.in")) {
-          const rollNo = email.split('@')[0].toLowerCase();
-          if (studentsData[rollNo]) {
-            resolvedRouteId = studentsData[rollNo];
-            inferredFullName = `Student (${rollNo.toUpperCase()})`;
-          }
         }
 
         const fallbackStudent: Student = {

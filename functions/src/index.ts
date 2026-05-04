@@ -55,6 +55,16 @@ export const aggregateBusLocation = onValueWritten(
         lastDerivedAt: Date.now(),
         note: "No active contributors.",
       });
+
+      try {
+        const firestore = admin.firestore();
+        await firestore.collection("live_buses").doc(busId).set({
+          estimated: true,
+          updatedAt: Date.now(),
+          activePingers: 0
+        }, { merge: true });
+      } catch (e) {}
+
       return;
     }
 
@@ -109,6 +119,16 @@ export const aggregateBusLocation = onValueWritten(
         note: "All candidates are stale or were rejected as outliers.",
       };
       await db.ref(`busHealth/${busId}`).set(health);
+
+      try {
+        const firestore = admin.firestore();
+        await firestore.collection("live_buses").doc(busId).set({
+          estimated: true,
+          updatedAt: now,
+          activePingers: 0
+        }, { merge: true });
+      } catch (e) {}
+
       return;
     }
 
@@ -146,6 +166,22 @@ export const aggregateBusLocation = onValueWritten(
       [`busHealth/${busId}`]:             health,
       [`busesByGeohash/${gh5}/${busId}`]: now,
     });
+
+    // 8b. Synchronize with Firestore live_buses for web clients
+    try {
+      const firestore = admin.firestore();
+      await firestore.collection("live_buses").doc(busId).set({
+        lat: derived.lat,
+        lng: derived.lng,
+        speed: derived.speed ?? null,
+        heading: derived.heading ?? null,
+        activePingers: derived.sourceCount ?? 1,
+        estimated: false,
+        updatedAt: now
+      }, { merge: true });
+    } catch (e) {
+      console.error(`Failed to sync bus ${busId} to firestore:`, e);
+    }
 
     // 9. Snap-to-roads (Phase 2.2) — fire-and-forget, throttled to 5 s.
     //    Persists snapped path to busPaths/{busId} for the route-line overlay.
