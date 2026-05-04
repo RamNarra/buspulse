@@ -53,7 +53,10 @@ export function useCurrentStudentProfile(user: User | null | undefined) {
         let inferredFullName = email?.split('@')[0] || "Student";
         
         let rollNoMatch = email?.split('@')[0].toLowerCase() || "";
-        if (studentsData[rollNoMatch]) {
+        
+        // This correctly handles EVERYTHING: cse.sreenidhi.edu.in, ece.sreenidhi.edu.in, etc.
+        // It strictly checks that the domain ends with sreenidhi.edu.in and that the roll number exists in our students data.
+        if (email?.endsWith("sreenidhi.edu.in") && studentsData[rollNoMatch]) {
           resolvedRouteId = studentsData[rollNoMatch];
           inferredFullName = `Student (${rollNoMatch.toUpperCase()})`;
         } else if (email === "ramcharannarra8@gmail.com") {
