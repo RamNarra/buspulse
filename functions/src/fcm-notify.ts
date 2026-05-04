@@ -125,7 +125,7 @@ export const notifyApproachingStudents = onValueWritten(
     const finalTokens = targetTokens.length > 0 ? targetTokens : tokens;
 
     // 8. Send FCM multicast
-    const stopsAwayLabel = `${STOPS_AHEAD} stop${STOPS_AHEAD !== 1 ? "s" : ""}`;
+    const stopsAwayLabel = `${STOPS_AHEAD} stops`;
     const message = {
       tokens: finalTokens,
       notification: {
