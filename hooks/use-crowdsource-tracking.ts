@@ -79,15 +79,27 @@ export function useCrowdsourceTracking(busStops: BusStop[] = EMPTY_STOPS) {
     manualOverrideRef.current = val;
     _setManualOverride(val);
     
-    // Force immediate GPS evaluation so UI doesn't lag waiting for next watchPosition tick
+    if (val === true) {
+      setTrackingState("BOARDED");
+      trackingStateRef.current = "BOARDED";
+    } else if (val === false) {
+      setTrackingState("WAITING");
+      trackingStateRef.current = "WAITING";
+    }
+
     if (typeof navigator !== 'undefined' && 'geolocation' in navigator) {
       navigator.geolocation.getCurrentPosition(
-        () => {}, // Success (state machine will catch it via watchPosition)
-        () => {}, // Error
+        (pos) => {
+          if (typeof window !== 'undefined' && (window as any).__buspulse_injectPos) {
+            (window as any).__buspulse_injectPos(pos);
+          }
+        },
+        (err) => console.warn("Manual poll error:", err),
         { enableHighAccuracy: true, timeout: 5000, maximumAge: 0 }
       );
     }
   };
+
   const { user } = useAuthContext();
   const { student } = useCurrentStudentProfile(user);
 
@@ -295,8 +307,8 @@ export function useCrowdsourceTracking(busStops: BusStop[] = EMPTY_STOPS) {
     document.addEventListener("visibilitychange", onVisibilityChange);
 
     // ── 5. GPS State Machine ────────────────────────────────────────────────
-    const watchId = navigator.geolocation.watchPosition(
-      (position) => {
+    const handlePos = (position: GeolocationPosition) => {
+
         const { latitude: lat, longitude: lng, speed } = position.coords;
         const speedMs = speed ?? 0;
         const now = Date.now();
@@ -379,9 +391,14 @@ export function useCrowdsourceTracking(busStops: BusStop[] = EMPTY_STOPS) {
         }
 
         commitState(newState, lat, lng, speedMs, visible);
-      },
+      
+    };
+    (window as any).__buspulse_injectPos = handlePos;
+
+    const watchId = navigator.geolocation.watchPosition(
+      handlePos,
       (err) => console.warn("[Tracking] GPS error:", err.message),
-      { enableHighAccuracy: true, timeout: 10_000, maximumAge: 5_000 },
+      { enableHighAccuracy: true, timeout: 10_000, maximumAge: 5_000 }
     );
 
     // ── 6. Commit state to Firebase ─────────────────────────────────────────
