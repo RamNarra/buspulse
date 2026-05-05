@@ -17,7 +17,7 @@ export function scoreCandidate(candidate: TrackerCandidate, now = Date.now()): n
   return (
     freshnessScore * 0.45 +
     accuracyScore * 0.3 +
-    candidate.routeMatchScore * 0.2 +
+    (candidate.routeMatchScore || 1) * 0.2 +
     speedScore * 0.05
   );
 }
@@ -42,7 +42,7 @@ export function deriveLocationFromCandidates(
       acc.lat += item.candidate.lat * w;
       acc.lng += item.candidate.lng * w;
       acc.accuracy += (item.candidate.accuracy || 10) * w;
-      acc.routeMatchScore += item.candidate.routeMatchScore * w;
+      acc.routeMatchScore += (item.candidate.routeMatchScore || 1) * w;
       acc.speed += (item.candidate.speed ?? 0) * w;
       acc.heading += (item.candidate.heading ?? 0) * w;
       return acc;
