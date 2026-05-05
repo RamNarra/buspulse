@@ -47,7 +47,7 @@ export function useCurrentStudentProfile(user: User | null | undefined) {
         return;
       }
 
-      if (!result.ok) {
+      if (!result.ok || !result.student) {
         // Fallback: infer from students.json!
         // Works for ANY email domain — @sreenidhi.edu.in, Gmail, etc.
         // The lookup key is always the roll number, which is the part before @.
