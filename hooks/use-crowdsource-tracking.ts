@@ -135,6 +135,12 @@ export function useCrowdsourceTracking(busStops: BusStop[] = EMPTY_STOPS) {
   const lastLeadershipRenewRef = useRef<number>(0);
   const currentLeaderRef = useRef<{ uid?: string; ts?: number } | null>(null);
 
+  /**
+   * Last raw GPS fix — used to derive speed from position deltas when
+   * GeolocationCoordinates.speed returns null (common on Android Chrome & desktop).
+   */
+  const lastGpsRef = useRef<{ lat: number; lng: number; ts: number } | null>(null);
+
   // Upload coalescing (Phase 1.4): suppress writes that are < 2 s apart and
   // don't represent a meaningful position change (< 5 m AND < 5° heading change).
   const lastUploadRef = useRef<{
@@ -326,9 +332,28 @@ export function useCrowdsourceTracking(busStops: BusStop[] = EMPTY_STOPS) {
     const handlePos = (position: GeolocationPosition) => {
 
         const { latitude: lat, longitude: lng, speed } = position.coords;
-        const speedMs = speed ?? 0;
         const now = Date.now();
         const visible = !document.hidden;
+
+        // ── Derive speed from position deltas when browser returns null ───────
+        // GeolocationCoordinates.speed is null on most Android Chrome and desktop
+        // browsers. Without this fallback ALL speed checks fail → stuck in WAITING.
+        let derivedSpeedMs = 0;
+        const prev = lastGpsRef.current;
+        if (prev) {
+          const dtSec = (now - prev.ts) / 1000;
+          if (dtSec > 0 && dtSec < 30) { // ignore stale gaps > 30 s
+            derivedSpeedMs = haversineMeters(prev.lat, prev.lng, lat, lng) / dtSec;
+          }
+        }
+        lastGpsRef.current = { lat, lng, ts: now };
+
+        // Use the best available speed: GPS-reported if valid, otherwise derived.
+        // Cap derived speed at 40 m/s (144 km/h) to suppress GPS jumps.
+        const speedMs = Math.min(
+          Math.max(speed ?? 0, derivedSpeedMs),
+          40,
+        );
 
         // ── Determine if we are near a known bus stop ─────────────────────
         const nearStop = busStops.some(
