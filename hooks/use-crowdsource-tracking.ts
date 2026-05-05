@@ -16,6 +16,12 @@ import { useAuthContext } from "@/components/auth/auth-provider";
 import { useCurrentStudentProfile } from "@/hooks/use-current-student-profile";
 import { haversineMeters } from "@/lib/utils/geo";
 
+declare global {
+  interface Window {
+    __buspulse_injectPos?: (pos: GeolocationPosition) => void;
+  }
+}
+
 export type TrackingState = "IDLE" | "WAITING" | "BOARDED";
 
 // ── Thresholds ────────────────────────────────────────────────────────────────
@@ -24,7 +30,7 @@ export type TrackingState = "IDLE" | "WAITING" | "BOARDED";
 const BOARDED_RADIUS_M = 30;
 
 /** How long (ms) proximity must be maintained before confirming BOARDED. */
-const BOARDED_CONFIRM_MS = 15_000;
+const BOARDED_CONFIRM_MS = 8_000;
 
 /**
  * Speed (m/s) at which a user with NO peer bus centroid available can self-
@@ -53,8 +59,18 @@ const NEAR_STOP_RADIUS_M = 40;
 /** Minimum number of co-located, co-moving peers required for "Mutual Discovery". */
 const MUTUAL_DISCOVERY_PEERS = 2;
 
-/** Speed (m/s) each peer must exceed for Mutual Discovery to trigger. (0.5 to make it easy to trigger while testing) */
-const MUTUAL_DISCOVERY_SPEED_MS = 0.5;
+/**
+ * Speed (m/s) each peer must exceed for Mutual Discovery to trigger.
+ * 0.3 m/s ≈ 1 km/h — safe floor; browser GPS speed reports are imprecise.
+ */
+const MUTUAL_DISCOVERY_SPEED_MS = 0.3;
+
+/**
+ * Peer-to-peer proximity radius for Mutual Discovery.
+ * Wider than BOARDED_RADIUS_M because raw browser GPS has ±10–30 m error each,
+ * so two students in the same bus may appear 40–80 m apart.
+ */
+const MUTUAL_DISCOVERY_RADIUS_M = 80;
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -90,8 +106,8 @@ export function useCrowdsourceTracking(busStops: BusStop[] = EMPTY_STOPS) {
     if (typeof navigator !== 'undefined' && 'geolocation' in navigator) {
       navigator.geolocation.getCurrentPosition(
         (pos) => {
-          if (typeof window !== 'undefined' && (window as any).__buspulse_injectPos) {
-            (window as any).__buspulse_injectPos(pos);
+          if (typeof window !== 'undefined' && window.__buspulse_injectPos) {
+            window.__buspulse_injectPos(pos);
           }
         },
         (err) => console.warn("Manual poll error:", err),
@@ -367,7 +383,7 @@ export function useCrowdsourceTracking(busStops: BusStop[] = EMPTY_STOPS) {
           // ── Cold start: Mutual Discovery OR speed heuristic ───────────
           const movingPeersNearby = Object.values(peersRef.current).filter(
             (p) =>
-              haversineMeters(lat, lng, p.lat, p.lng) <= BOARDED_RADIUS_M &&
+              haversineMeters(lat, lng, p.lat, p.lng) <= MUTUAL_DISCOVERY_RADIUS_M &&
               p.speed >= MUTUAL_DISCOVERY_SPEED_MS,
           );
 
@@ -393,7 +409,7 @@ export function useCrowdsourceTracking(busStops: BusStop[] = EMPTY_STOPS) {
         commitState(newState, lat, lng, speedMs, visible);
       
     };
-    (window as any).__buspulse_injectPos = handlePos;
+    window.__buspulse_injectPos = handlePos;
 
     const watchId = navigator.geolocation.watchPosition(
       handlePos,

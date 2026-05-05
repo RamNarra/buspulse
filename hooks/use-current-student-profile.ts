@@ -49,19 +49,15 @@ export function useCurrentStudentProfile(user: User | null | undefined) {
 
       if (!result.ok) {
         // Fallback: infer from students.json!
-        let resolvedRouteId: string | undefined = undefined; // No default route
-        let inferredFullName = email?.split('@')[0] || "Student";
-        
-        let rollNoMatch = email?.split('@')[0].toLowerCase() || "";
-        
-        // This correctly handles EVERYTHING: cse.sreenidhi.edu.in, ece.sreenidhi.edu.in, etc.
-        // It strictly checks that the domain ends with sreenidhi.edu.in and that the roll number exists in our students data.
-        if (email?.endsWith("sreenidhi.edu.in") && studentsData[rollNoMatch]) {
+        // Works for ANY email domain — @sreenidhi.edu.in, Gmail, etc.
+        // The lookup key is always the roll number, which is the part before @.
+        let resolvedRouteId: string | undefined = undefined;
+        const rollNoMatch = email?.split('@')[0].toLowerCase() ?? "";
+        let inferredFullName = rollNoMatch || "Student";
+
+        if (rollNoMatch && studentsData[rollNoMatch]) {
           resolvedRouteId = studentsData[rollNoMatch];
           inferredFullName = `Student (${rollNoMatch.toUpperCase()})`;
-        } else if (email === "ramcharannarra8@gmail.com") {
-          resolvedRouteId = "15";
-          inferredFullName = "Ram Charan";
         }
 
         if (!resolvedRouteId) {

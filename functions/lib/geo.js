@@ -28,6 +28,11 @@ function isLocationOutlier(prevLat, prevLng, prevTs, newLat, newLng, newTs, maxS
     if (dtSeconds <= 0)
         return false;
     const distMeters = haversineMeters(prevLat, prevLng, newLat, newLng);
-    return distMeters / dtSeconds > maxSpeedMs;
+    // Natural GPS drift tolerance: never reject points under 40 meters,
+    // regardless of how "fast" the time delta makes it seem.
+    if (distMeters <= 40)
+        return false;
+    // Add 10 seconds of "grace time" so consecutive pings from different phones don't artificially spike speed calculate
+    return distMeters / (dtSeconds + 10) > maxSpeedMs;
 }
 //# sourceMappingURL=geo.js.map

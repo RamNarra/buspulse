@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Bus, LogOut, Settings, Loader2, Navigation, Activity, Clock, Zap, Radio, Crosshair, WifiOff, AlertOctagon } from "lucide-react";
+import { Bus, LogOut, Settings, Loader2, Navigation, Activity, Clock, Zap, Radio, Crosshair, WifiOff, AlertOctagon, CheckCircle2 } from "lucide-react";
 
 import { BusMap } from "@/components/map/bus-map";
 import { useAuthSession } from "@/hooks/use-auth-session";
@@ -23,6 +23,26 @@ export default function DashboardPage() {
   const { trackingState, isLeader, peerCount, manualOverride, setManualOverride } = useCrowdsourceTracking();
   const busId = (student ?? mockStudent).busId ?? mockBus.id;
   const { fleet } = useFleetState(); // GLOBAL BUS VISIBILITY OVERRIDE
+
+  // ── Auto-promotion toast ────────────────────────────────────────────────────
+  // Show a toast when the user auto-transitions to BOARDED without clicking "Yes".
+  const prevTrackingStateRef = useRef<string>("IDLE");
+  const [showAutoJoinToast, setShowAutoJoinToast] = useState(false);
+  useEffect(() => {
+    const prev = prevTrackingStateRef.current;
+    // Auto-promotion detected: was WAITING, now BOARDED, and user did NOT click "Yes"
+    if (prev === "WAITING" && trackingState === "BOARDED" && manualOverride !== true) {
+      setTimeout(() => setShowAutoJoinToast(true), 0);
+    }
+    prevTrackingStateRef.current = trackingState;
+  }, [trackingState, manualOverride]);
+
+  useEffect(() => {
+    if (showAutoJoinToast) {
+      const timer = setTimeout(() => setShowAutoJoinToast(false), 4000);
+      return () => clearTimeout(timer);
+    }
+  }, [showAutoJoinToast]);
 
   useEffect(() => {
     if (mode === "live" && !authLoading && !user) {
@@ -255,6 +275,49 @@ export default function DashboardPage() {
                   {studentsRelying > 0
                     ? `${studentsRelying} other student${studentsRelying === 1 ? "" : "s"} on this route are relying on your signal.`
                     : `Keep screen on — you are the sole GPS source for this route.`}
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── FIRST BOARDER BANNER ─────────────────────────────────────────────── */}
+      {/* Shown when user manually said "Yes" and they are the only active pinger */}
+      {trackingState === "BOARDED" && manualOverride === true && peerCount === 0 && (
+        <div className="absolute top-20 left-4 right-4 sm:left-6 sm:right-6 z-30">
+          <div className="mx-auto max-w-5xl">
+            <div className="bg-indigo-500/10 backdrop-blur-md border border-indigo-500/20 rounded-2xl px-3 py-2 flex items-center gap-3 shadow-lg">
+              <div className="w-7 h-7 rounded-full bg-indigo-500/20 flex items-center justify-center flex-shrink-0 animate-pulse">
+                <Radio className="w-3.5 h-3.5 text-indigo-400" />
+              </div>
+              <div className="min-w-0">
+                <p className="text-[10px] font-black text-indigo-300 uppercase tracking-widest">
+                  🚌 You&apos;re the first signal on Bus {busId}!
+                </p>
+                <p className="text-[9px] text-indigo-400/70 font-medium leading-tight">
+                  Students nearby will auto-join when the bus moves.
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── AUTO-JOIN TOAST ──────────────────────────────────────────────────── */}
+      {showAutoJoinToast && (
+        <div className="absolute top-20 left-4 right-4 sm:left-6 sm:right-6 z-50 pointer-events-none">
+          <div className="mx-auto max-w-5xl">
+            <div className="bg-emerald-500/15 backdrop-blur-md border border-emerald-500/30 rounded-2xl px-4 py-3 flex items-center gap-3 shadow-xl">
+              <div className="w-8 h-8 rounded-full bg-emerald-500/25 flex items-center justify-center flex-shrink-0">
+                <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+              </div>
+              <div className="min-w-0">
+                <p className="text-[11px] font-black text-emerald-300 uppercase tracking-widest">
+                  Welcome aboard! ✅
+                </p>
+                <p className="text-[9px] text-emerald-400/70 font-medium leading-tight">
+                  Bus {busId} detected nearby — auto-confirmed.
                 </p>
               </div>
             </div>
