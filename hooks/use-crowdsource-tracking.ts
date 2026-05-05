@@ -185,22 +185,41 @@ export function useCrowdsourceTracking(busStops: BusStop[] = EMPTY_STOPS) {
     }
     const opaqueId = opaqueIdRef.current;
 
-    // Register opaque ID mapping — include busId so RTDB rules can verify
-    // that this opaqueId is only allowed to write to trackerCandidates/{busId}.
+    // Firebase node refs — defined early so cleanup can reference them even if
+    // the async setup hasn't completed yet.
     const mappingRef = ref(db, `trackerMappings/${opaqueId}`);
-    void set(mappingRef, { uid, busId });
-    onDisconnect(mappingRef).remove();
-
-    // Firebase node refs
     const waitingRef = ref(db, `approachingStudents/${busId}/${opaqueId}`);
     const boardedRef = ref(db, `trackerCandidates/${busId}/${opaqueId}`);
     const leaderRef = ref(db, `trackerAssignments/${busId}/leader`);
     const candidatesRef = ref(db, `trackerCandidates/${busId}`);
     const othersWaitingRef = ref(db, `approachingStudents/${busId}`);
 
-    // Automatically clean up on disconnect
+    // Clean up on disconnect regardless of whether setup completes
+    onDisconnect(mappingRef).remove();
     onDisconnect(waitingRef).remove();
     onDisconnect(boardedRef).remove();
+
+    // Cleanup handles for subscriptions and GPS watcher — populated after setup.
+    let unsubCandidates: (() => void) | null = null;
+    let unsubOthersWaiting: (() => void) | null = null;
+    let unsubLeader: (() => void) | null = null;
+    let watchId: number | null = null;
+    let onVisibilityChangeHandler: (() => void) | null = null;
+    let isCancelled = false; // set to true if the effect cleanup runs before setup finishes
+
+    // ── ASYNC SETUP ──────────────────────────────────────────────────────────
+    // We MUST await the trackerMappings write before starting GPS or any
+    // subscriptions. The RTDB write rules for trackerCandidates and
+    // approachingStudents verify that trackerMappings/{opaqueId}.uid matches
+    // auth.uid. If GPS fires before the mapping is committed, every write
+    // is silently rejected and peers never see each other.
+    void (async () => {
+      // Register opaque ID mapping — AWAIT so it's committed before GPS starts.
+      await set(mappingRef, { uid, busId });
+
+      if (isCancelled) return; // effect was cleaned up while we awaited
+      // Subscriptions, GPS, and visibility listener are now safe to start
+      // because the mapping is guaranteed to exist in RTDB.
 
     // ── 1. Mirror peer pings (Both Boarded and Waiting) ─────────────────────
     const syncPeers = (
@@ -247,18 +266,18 @@ export function useCrowdsourceTracking(busStops: BusStop[] = EMPTY_STOPS) {
     let lastBoarded: Record<string, Partial<PeerPing>> = {};
     let lastWaiting: Record<string, Partial<PeerPing>> = {};
 
-    const unsubCandidates = onValue(candidatesRef, (snapshot) => {
+    unsubCandidates = onValue(candidatesRef, (snapshot) => {
       lastBoarded = snapshot.exists() ? snapshot.val() : {};
       syncPeers(lastBoarded, lastWaiting);
     });
 
-    const unsubOthersWaiting = onValue(othersWaitingRef, (snapshot) => {
+    unsubOthersWaiting = onValue(othersWaitingRef, (snapshot) => {
       lastWaiting = snapshot.exists() ? snapshot.val() : {};
       syncPeers(lastBoarded, lastWaiting);
     });
 
-    // ── 2. Leader watcher ───────────────────────────────────────────────────
-    const unsubLeader = onValue(leaderRef, (snapshot) => {
+    // ── 2. Leader watcher ──────────────────────────────────────────────
+    unsubLeader = onValue(leaderRef, (snapshot) => {
       const current = snapshot.val() as { uid?: string; ts?: number } | null;
       currentLeaderRef.current = current;
       const amLeader = current?.uid === opaqueId;
@@ -315,7 +334,7 @@ export function useCrowdsourceTracking(busStops: BusStop[] = EMPTY_STOPS) {
     }
 
     // ── 4. Visibility-based leader handoff ──────────────────────────────────
-    function onVisibilityChange() {
+    onVisibilityChangeHandler = function onVisibilityChange() {
       const hidden = document.hidden;
       if (hidden && isLeaderRef.current) {
         void yieldLeadership();
@@ -325,10 +344,58 @@ export function useCrowdsourceTracking(busStops: BusStop[] = EMPTY_STOPS) {
       if (trackingStateRef.current === "BOARDED") {
         void update(boardedRef, { visible: !hidden });
       }
-    }
-    document.addEventListener("visibilitychange", onVisibilityChange);
+    };
+    document.addEventListener("visibilitychange", onVisibilityChangeHandler);
 
-    // ── 5. GPS State Machine ────────────────────────────────────────────────
+    // ── 5. GPS State Machine — commitState declared first because handlePos calls it ───
+    // ── 5a. Commit state to Firebase ────────────────────────────────────────
+    function commitState(
+      newState: TrackingState,
+      lat: number,
+      lng: number,
+      speedMs: number,
+      visible: boolean,
+    ) {
+      const stateChanged = newState !== trackingStateRef.current;
+      if (stateChanged) {
+        trackingStateRef.current = newState;
+        setTrackingState(newState);
+      }
+
+      // ── Upload coalescing: skip write if state unchanged, < 2 s, and < 5 m.
+      const now = Date.now();
+      const prev = lastUploadRef.current;
+      if (!stateChanged && prev) {
+        const elapsedMs = now - prev.ts;
+        const distM = haversineMeters(prev.lat, prev.lng, lat, lng);
+        const newHeading =
+          distM > 0
+            ? (Math.atan2(lng - prev.lng, lat - prev.lat) * 180) / Math.PI
+            : prev.heading;
+        const headingDelta = Math.abs(((newHeading - prev.heading + 540) % 360) - 180);
+        if (elapsedMs < 2_000) return;
+        if (distM < 5 && headingDelta < 5) return;
+      }
+      const newHeadingForRef =
+        prev && haversineMeters(prev.lat, prev.lng, lat, lng) > 0
+          ? (Math.atan2(lng - prev.lng, lat - prev.lat) * 180) / Math.PI
+          : prev?.heading ?? 0;
+      lastUploadRef.current = { ts: now, lat, lng, heading: newHeadingForRef };
+
+      if (newState === "BOARDED") {
+        if (!lastBoardedAtRef.current) lastBoardedAtRef.current = Date.now();
+        void set(boardedRef, { lat, lng, speed: speedMs, visible, updatedAt: Date.now() });
+        void remove(waitingRef);
+        void tryClaimLeadership(visible);
+      } else {
+        lastBoardedAtRef.current = null;
+        void set(waitingRef, { lat, lng, speed: speedMs, updatedAt: Date.now() });
+        void remove(boardedRef);
+        void yieldLeadership();
+      }
+    }
+
+    // ── 5b. GPS position handler ─────────────────────────────────────────────
     const handlePos = (position: GeolocationPosition) => {
 
         const { latitude: lat, longitude: lng, speed } = position.coords;
@@ -436,78 +503,27 @@ export function useCrowdsourceTracking(busStops: BusStop[] = EMPTY_STOPS) {
     };
     window.__buspulse_injectPos = handlePos;
 
-    const watchId = navigator.geolocation.watchPosition(
-      handlePos,
-      (err) => console.warn("[Tracking] GPS error:", err.message),
-      { enableHighAccuracy: true, timeout: 10_000, maximumAge: 5_000 }
-    );
-
-    // ── 6. Commit state to Firebase ─────────────────────────────────────────
-    function commitState(
-      newState: TrackingState,
-      lat: number,
-      lng: number,
-      speedMs: number,
-      visible: boolean,
-    ) {
-      const stateChanged = newState !== trackingStateRef.current;
-      if (stateChanged) {
-        trackingStateRef.current = newState;
-        setTrackingState(newState);
-      }
-
-      // ── Upload coalescing (Phase 1.4) ─────────────────────────────────────
-      // Skip the Firebase write unless: state changed, throttle cleared, OR
-      // position moved meaningfully (5 m / 5° heading change).
-      const now = Date.now();
-      const prev = lastUploadRef.current;
-      if (!stateChanged && prev) {
-        const elapsedMs = now - prev.ts;
-        const distM = haversineMeters(prev.lat, prev.lng, lat, lng);
-        const newHeading =
-          distM > 0
-            ? (Math.atan2(lng - prev.lng, lat - prev.lat) * 180) / Math.PI
-            : prev.heading;
-        const headingDelta = Math.abs(((newHeading - prev.heading + 540) % 360) - 180);
-
-        if (elapsedMs < 2_000) return;             // throttle: < 2 s
-        if (distM < 5 && headingDelta < 5) return; // no meaningful change
-      }
-
-      // Update coalescing reference point
-      const newHeadingForRef =
-        prev && haversineMeters(prev.lat, prev.lng, lat, lng) > 0
-          ? (Math.atan2(lng - prev.lng, lat - prev.lat) * 180) / Math.PI
-          : prev?.heading ?? 0;
-      lastUploadRef.current = { ts: now, lat, lng, heading: newHeadingForRef };
-      // ─────────────────────────────────────────────────────────────────────
-
-      if (newState === "BOARDED") {
-        if (!lastBoardedAtRef.current) lastBoardedAtRef.current = Date.now();
-        void set(boardedRef, {
-          lat, lng, speed: speedMs, visible, updatedAt: Date.now(),
-        });
-        void remove(waitingRef);
-        void tryClaimLeadership(visible);
-      } else {
-        lastBoardedAtRef.current = null;
-        void set(waitingRef, { lat, lng, speed: speedMs, updatedAt: Date.now() });
-        void remove(boardedRef);
-        void yieldLeadership();
-      }
-    }
+      watchId = navigator.geolocation.watchPosition(
+        handlePos,
+        (err) => console.warn("[Tracking] GPS error:", err.message),
+        { enableHighAccuracy: true, timeout: 10_000, maximumAge: 5_000 }
+      );
+    })(); // end async IIFE
 
     // ── Cleanup ─────────────────────────────────────────────────────────────
     return () => {
-      navigator.geolocation.clearWatch(watchId);
-      document.removeEventListener("visibilitychange", onVisibilityChange);
-      unsubCandidates();
-      unsubOthersWaiting();
-      unsubLeader();
+      isCancelled = true; // stop async IIFE from starting GPS after this point
+      if (watchId !== null) navigator.geolocation.clearWatch(watchId);
+      window.__buspulse_injectPos = undefined;
+      if (onVisibilityChangeHandler) {
+        document.removeEventListener("visibilitychange", onVisibilityChangeHandler);
+      }
+      unsubCandidates?.();
+      unsubOthersWaiting?.();
+      unsubLeader?.();
       void remove(waitingRef);
       void remove(boardedRef);
-      void yieldLeadership();
-      void releaseWakeLock();
+      void remove(mappingRef);
     };
   }, [user, student, busStops]);
 
