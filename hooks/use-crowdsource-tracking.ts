@@ -70,10 +70,24 @@ type BusStop = { lat: number; lng: number };
 
 // ── Hook ──────────────────────────────────────────────────────────────────────
 
-export function useCrowdsourceTracking(busStops: BusStop[] = []) {
+const EMPTY_STOPS: BusStop[] = [];
+
+export function useCrowdsourceTracking(busStops: BusStop[] = EMPTY_STOPS) {
   const [manualOverride, _setManualOverride] = useState<boolean | null>(null);
   const manualOverrideRef = useRef<boolean | null>(null);
-  const setManualOverride = (val: boolean | null) => { manualOverrideRef.current = val; _setManualOverride(val); };
+  const setManualOverride = (val: boolean | null) => {
+    manualOverrideRef.current = val;
+    _setManualOverride(val);
+    
+    // Force immediate GPS evaluation so UI doesn't lag waiting for next watchPosition tick
+    if (typeof navigator !== 'undefined' && 'geolocation' in navigator) {
+      navigator.geolocation.getCurrentPosition(
+        () => {}, // Success (state machine will catch it via watchPosition)
+        () => {}, // Error
+        { enableHighAccuracy: true, timeout: 5000, maximumAge: 0 }
+      );
+    }
+  };
   const { user } = useAuthContext();
   const { student } = useCurrentStudentProfile(user);
 
