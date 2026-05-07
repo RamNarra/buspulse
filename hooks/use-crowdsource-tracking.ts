@@ -461,41 +461,37 @@ export function useCrowdsourceTracking(busStops: BusStop[] = EMPTY_STOPS) {
         }
         let newState: TrackingState = "WAITING";
 
+        // ── 1. Calculate Dynamic Proximity to Bus ──
+        let nearBus = false;
         if (busCentroid) {
+          const latencySec = (now - busCentroid.ts) / 1000;
+          // Expand the 30m radius to account for speed * latency (up to a 100m cap)
+          const dynamicRadius = Math.min(BOARDED_RADIUS_M + (speedMs * Math.max(0, latencySec)), 100); 
           const distM = haversineMeters(lat, lng, busCentroid.lat, busCentroid.lng);
-          if (distM <= BOARDED_RADIUS_M) {
-            if (proximityStartRef.current === null) proximityStartRef.current = now;
-            const elapsed = now - proximityStartRef.current;
-            newState = elapsed >= BOARDED_CONFIRM_MS ? "BOARDED" : "WAITING";
-          } else {
-            proximityStartRef.current = null;
-            newState = "WAITING";
-          }
-        } else {
-          // ── Cold start: Mutual Discovery OR speed heuristic ───────────
-          const movingPeersNearby = Object.values(peersRef.current).filter(
-            (p) =>
-              haversineMeters(lat, lng, p.lat, p.lng) <= MUTUAL_DISCOVERY_RADIUS_M &&
-              p.speed >= MUTUAL_DISCOVERY_SPEED_MS,
-          );
+          nearBus = distM <= dynamicRadius;
+        }
 
-          if (
-            movingPeersNearby.length >= MUTUAL_DISCOVERY_PEERS - 1 && // -1 because we count self
-            speedMs >= MUTUAL_DISCOVERY_SPEED_MS
-          ) {
-            // Mutual discovery: we + 1 moving peer = bus formation
-            if (proximityStartRef.current === null) proximityStartRef.current = now;
-            const elapsed = now - proximityStartRef.current;
-            newState = elapsed >= BOARDED_CONFIRM_MS ? "BOARDED" : "WAITING";
-          } else if (speedMs >= COLD_START_SPEED_MS) {
-            // Solo speed heuristic
-            if (proximityStartRef.current === null) proximityStartRef.current = now;
-            const elapsed = now - proximityStartRef.current;
-            newState = elapsed >= BOARDED_CONFIRM_MS ? "BOARDED" : "WAITING";
-          } else {
-            proximityStartRef.current = null;
-            newState = "WAITING";
-          }
+        // ── 2. Evaluate Peer Mutual Discovery ──
+        const movingPeersNearby = Object.values(peersRef.current).filter(
+          (p) =>
+            haversineMeters(lat, lng, p.lat, p.lng) <= MUTUAL_DISCOVERY_RADIUS_M &&
+            p.speed >= MUTUAL_DISCOVERY_SPEED_MS,
+        );
+        const hasMutualDiscovery = 
+          movingPeersNearby.length >= MUTUAL_DISCOVERY_PEERS - 1 && // -1 because we count self
+          speedMs >= MUTUAL_DISCOVERY_SPEED_MS;
+
+        const meetsSpeedHeuristic = speedMs >= COLD_START_SPEED_MS;
+
+        // ── 3. Unified State Resolution ──
+        // A user boards if they are near the bus centroid, OR they trigger mutual discovery, OR they trigger the solo speed heuristic
+        if (nearBus || hasMutualDiscovery || meetsSpeedHeuristic) {
+          if (proximityStartRef.current === null) proximityStartRef.current = now;
+          const elapsed = now - proximityStartRef.current;
+          newState = elapsed >= BOARDED_CONFIRM_MS ? "BOARDED" : "WAITING";
+        } else {
+          proximityStartRef.current = null;
+          newState = "WAITING";
         }
 
         commitState(newState, lat, lng, speedMs, visible);
