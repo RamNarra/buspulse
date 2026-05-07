@@ -9,6 +9,7 @@ import type { Bus, BusLocation } from "@/types/models";
 import type { FleetBus } from "@/hooks/use-fleet-state";
 import { useAppStore } from "@/lib/store/app-store";
 import { useInterpolatedPosition } from "@/hooks/use-interpolated-position";
+import { useCrowdsourceTracking } from "@/hooks/use-crowdsource-tracking";
 import { haversineMeters } from "@/lib/utils/geo";
 
 type BusMapProps = {
@@ -173,6 +174,7 @@ function MapCentering({
 
 export function BusMap({ bus, busLocation, fleet = [] }: BusMapProps) {
   const [userLocation, setUserLocation] = useState<{ lat: number; lng: number } | null>(null);
+  const { trackingState, peerCount } = useCrowdsourceTracking();
   
   const mapType = useAppStore((state) => state.mapType);
 
@@ -183,8 +185,25 @@ export function BusMap({ bus, busLocation, fleet = [] }: BusMapProps) {
   const busLat = busLocation?.lat ?? 17.506;
   const busLng = busLocation?.lng ?? 78.382;
 
+  // 1. Optimistic local clustering: If we are BOARDED but the Cloud Function 
+  // hasn't synced us to `fleet` yet, visually inject our bus using local GPS.
+  const isOptimisticallyBoarded = trackingState === "BOARDED" && userLocation;
+  const backendHasOurBus = fleet.some(f => f.routeNumber === bus.code);
+
+  const augmentedFleet = [...fleet];
+  if (isOptimisticallyBoarded && !backendHasOurBus) {
+    augmentedFleet.push({
+      routeNumber: bus.code,
+      lat: userLocation.lat,
+      lng: userLocation.lng,
+      updatedAt: Date.now(),
+      activePingers: peerCount + 1,
+      estimated: false,
+    });
+  }
+
   // Cluster nearby bus markers — majority-vote labelling for clubbed buses.
-  const clusteredFleet = useMemo(() => clusterFleet(fleet), [fleet]);
+  const clusteredFleet = useMemo(() => clusterFleet(augmentedFleet), [augmentedFleet]);
 
   useEffect(() => {
     if (typeof navigator === "undefined" || !("geolocation" in navigator)) {
@@ -250,8 +269,8 @@ export function BusMap({ bus, busLocation, fleet = [] }: BusMapProps) {
             />
           ))}
 
-          {/* Your own location — blue dot */}
-          {userLocation && (
+          {/* 2. Hide the raw blue dot once we successfully merge into the bus */}
+          {userLocation && trackingState !== "BOARDED" && (
             <AdvancedMarker 
               position={userLocation} 
               title="Your Location"
