@@ -15,22 +15,6 @@ service cloud.firestore {
       return isSignedIn() && request.auth.token.tier == 'god';
     }
 
-    // Returns the routeId stored on the authenticated user's student profile.
-    // Handles Parents (using their studentId claim) and Students (trying uid or student-uid as doc IDs).
-    function studentRouteId() {
-      return ('role' in request.auth.token && request.auth.token.role == 'parent')
-        ? get(/databases/$(database)/documents/students/$(request.auth.token.studentId)).data.routeId
-        : (
-            get(/databases/$(database)/documents/students/$(request.auth.uid)) != null 
-              ? get(/databases/$(database)/documents/students/$(request.auth.uid)).data.routeId
-              : (
-                  get(/databases/$(database)/documents/students/$('student-' + request.auth.uid)) != null
-                    ? get(/databases/$(database)/documents/students/$('student-' + request.auth.uid)).data.routeId
-                    : null
-                )
-          );
-    }
-
     // ── Students ────────────────────────────────────────────────────────────
     // Each student can only read their own document. No direct writes allowed.
     match /students/{studentId} {
@@ -39,22 +23,20 @@ service cloud.firestore {
     }
 
     // ── Buses ────────────────────────────────────────────────────────────────
-    // Global visibility override active.
     match /buses/{busId} {
-      allow read: if isSignedIn();
+      allow read: if isAdmin() || isGodMode() || (isSignedIn() && request.auth.token.assignedBusId == busId);
       allow write: if isAdmin();
     }
 
     // ── Live Buses ───────────────────────────────────────────────────────────
     match /live_buses/{busId} {
-      allow read: if isSignedIn();
+      allow read: if isAdmin() || isGodMode() || (isSignedIn() && request.auth.token.assignedBusId == busId);
       allow write: if false; // Only backend (Firebase Admin SDK) can write here.
     }
 
     // ── Routes ───────────────────────────────────────────────────────────────
-    // Global visibility override active.
     match /routes/{routeId} {
-      allow read: if isSignedIn();
+      allow read: if isAdmin() || isGodMode() || (isSignedIn() && request.auth.token.assignedRouteId == routeId);
       allow write: if isAdmin();
     }
 
@@ -62,7 +44,7 @@ service cloud.firestore {
     match /stops/{stopId} {
       allow read: if isAdmin()
         || isGodMode()
-        || (isSignedIn() && resource.data.routeId == studentRouteId());
+        || (isSignedIn() && resource.data.routeId == request.auth.token.assignedRouteId);
       allow write: if isAdmin();
     }
 
@@ -85,7 +67,6 @@ service cloud.firestore {
     }
 
     // ── Sessions (1-device enforcement) ───────────────────────────────────────
-    // Clients can read their own session token; only they can write it.
     match /sessions/{uid} {
       allow read, write: if isSignedIn() && request.auth.uid == uid;
     }

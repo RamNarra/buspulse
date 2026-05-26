@@ -48,7 +48,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const pathname = usePathname();
 
   // Stable token for this browser instance
-  const sessionTokenRef = useRef<string>(generateSessionToken());
+  const sessionTokenRef = useRef<string>("");
+  if (typeof window !== "undefined" && !sessionTokenRef.current) {
+    let token = localStorage.getItem("bp_session_token");
+    if (!token) {
+      token = generateSessionToken();
+      localStorage.setItem("bp_session_token", token);
+    }
+    sessionTokenRef.current = token;
+  }
 
   // Kick the user out if another device logs in
   const kickSelf = useCallback(
@@ -67,6 +75,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   );
 
   useEffect(() => {
+    if (typeof window !== "undefined") {
+      const activeTabs = parseInt(localStorage.getItem("bp_active_tabs") || "0", 10);
+      localStorage.setItem("bp_active_tabs", (activeTabs + 1).toString());
+    }
+
     const app = getFirebaseClientApp();
     if (!app) {
       setIsLoading(false);
@@ -132,15 +145,37 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         sessionUnsub = null;
       }
 
-      setUser(firebaseUser);
-      setIsLoading(false);
-
       if (firebaseUser) {
+        setIsLoading(true);
         void registerSession(firebaseUser.uid);
-        if (pathname === "/login" || pathname === "/") {
-          router.push("/dashboard");
-        }
+        
+        // Sync claims with backend to verify student/admin/parent role and custom claims
+        void (async () => {
+          try {
+            const token = await firebaseUser.getIdToken();
+            const res = await fetch("/api/auth/sync", {
+              method: "POST",
+              headers: {
+                "Authorization": `Bearer ${token}`
+              }
+            });
+            if (res.ok) {
+              // Force token refresh to pick up the newly set custom claims
+              await firebaseUser.getIdToken(true);
+            }
+          } catch (e) {
+            console.error("[AuthProvider] Failed to sync custom claims:", e);
+          } finally {
+            setUser(firebaseUser);
+            setIsLoading(false);
+            if (pathname === "/login" || pathname === "/") {
+              router.push("/dashboard");
+            }
+          }
+        })();
       } else {
+        setUser(null);
+        setIsLoading(false);
         if (pathname !== "/login" && pathname !== "/") {
           router.push("/login");
         }
@@ -150,9 +185,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return () => {
       unsubAuth();
       if (sessionUnsub) sessionUnsub();
-      // Clean up session on tab close if user is still logged in
-      if (auth.currentUser) {
-        void clearSession(auth.currentUser.uid);
+      // Clean up session on tab close if user is still logged in and this is the last active tab
+      if (typeof window !== "undefined") {
+        const activeTabs = parseInt(localStorage.getItem("bp_active_tabs") || "0", 10);
+        const newCount = Math.max(0, activeTabs - 1);
+        localStorage.setItem("bp_active_tabs", newCount.toString());
+        if (newCount === 0 && auth.currentUser) {
+          void clearSession(auth.currentUser.uid);
+        }
       }
     };
     // pathname intentionally not in deps — we only want the initial nav effect

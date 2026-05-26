@@ -59,6 +59,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.exportBusLocationToBigQuery = void 0;
 const admin = __importStar(require("firebase-admin"));
 const database_1 = require("firebase-functions/v2/database");
+const region_1 = require("./region");
 const PROJECT_ID = process.env.GCLOUD_PROJECT ?? process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID ?? "";
 const DATASET = process.env.BIGQUERY_DATASET ?? "buspulse";
 const TABLE = "bus_locations";
@@ -80,7 +81,7 @@ async function getBigQueryClient() {
 }
 exports.exportBusLocationToBigQuery = (0, database_1.onValueWritten)({
     ref: "busLocations/{busId}",
-    region: "asia-southeast1",
+    region: region_1.FUNCTION_REGION,
 }, async (event) => {
     const busId = event.params.busId;
     const after = event.data.after;

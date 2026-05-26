@@ -11,7 +11,7 @@ import {
   remove,
   update,
 } from "firebase/database";
-import { getFirebaseClientApp } from "@/lib/firebase/client";
+import { getFirebaseClientApp, getFirebaseClientError } from "@/lib/firebase/client";
 import { useAuthContext } from "@/components/auth/auth-provider";
 import { useCurrentStudentProfile } from "@/hooks/use-current-student-profile";
 import { haversineMeters } from "@/lib/utils/geo";
@@ -171,11 +171,29 @@ export function useCrowdsourceTracking(busStops: BusStop[] = EMPTY_STOPS) {
   }
 
   useEffect(() => {
-    if (!user || !student?.busId) return;
-    if (typeof navigator === "undefined" || !("geolocation" in navigator)) return;
+    if (!user) return;
+    if (!student?.busId) {
+      console.warn(
+        "[BusPulse] Crowdsourced tracking is disabled because your student profile has no assigned busId.",
+      );
+      return;
+    }
+
+    if (typeof navigator === "undefined" || !("geolocation" in navigator)) {
+      console.warn(
+        "[BusPulse] Crowdsourced tracking is disabled because Geolocation is not available in this environment.",
+      );
+      return;
+    }
 
     const app = getFirebaseClientApp();
-    if (!app) return;
+    if (!app) {
+      console.warn(
+        "[BusPulse] Crowdsourced tracking is disabled because Firebase client initialization failed:",
+        getFirebaseClientError(),
+      );
+      return;
+    }
     const db = getDatabase(app);
     const busId = student.busId;
     const uid = user.uid;
@@ -215,7 +233,15 @@ export function useCrowdsourceTracking(busStops: BusStop[] = EMPTY_STOPS) {
     // is silently rejected and peers never see each other.
     void (async () => {
       // Register opaque ID mapping — AWAIT so it's committed before GPS starts.
-      await set(mappingRef, { uid, busId });
+      try {
+        await set(mappingRef, { uid, busId });
+      } catch (error) {
+        console.error(
+          "[BusPulse] Failed to write trackerMappings. This is usually RTDB rules, missing auth, or App Check enforcement.",
+          error,
+        );
+        return;
+      }
 
       if (isCancelled) return; // effect was cleaned up while we awaited
       // Subscriptions, GPS, and visibility listener are now safe to start
@@ -384,13 +410,21 @@ export function useCrowdsourceTracking(busStops: BusStop[] = EMPTY_STOPS) {
 
       if (newState === "BOARDED") {
         if (!lastBoardedAtRef.current) lastBoardedAtRef.current = Date.now();
-        void set(boardedRef, { lat, lng, speed: speedMs, visible, updatedAt: Date.now() });
-        void remove(waitingRef);
+        void set(boardedRef, { lat, lng, speed: speedMs, visible, updatedAt: Date.now() }).catch(
+          (error) => console.error("[BusPulse] RTDB write failed: trackerCandidates", error),
+        );
+        void remove(waitingRef).catch(
+          (error) => console.error("[BusPulse] RTDB remove failed: approachingStudents", error),
+        );
         void tryClaimLeadership(visible);
       } else {
         lastBoardedAtRef.current = null;
-        void set(waitingRef, { lat, lng, speed: speedMs, updatedAt: Date.now() });
-        void remove(boardedRef);
+        void set(waitingRef, { lat, lng, speed: speedMs, updatedAt: Date.now() }).catch(
+          (error) => console.error("[BusPulse] RTDB write failed: approachingStudents", error),
+        );
+        void remove(boardedRef).catch(
+          (error) => console.error("[BusPulse] RTDB remove failed: trackerCandidates", error),
+        );
         void yieldLeadership();
       }
     }

@@ -6,7 +6,7 @@ const nextConfig: NextConfig = {
     return [
       {
         source: "/__/auth/:path*",
-        destination: "https://buspulse-493407.firebaseapp.com/__/auth/:path*",
+        destination: `https://${process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID || "buspulse-493407"}.firebaseapp.com/__/auth/:path*`,
       },
     ];
   },

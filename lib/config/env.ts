@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-export const BUSPULSE_PROJECT_ID = "buspulse-493407";
+export const BUSPULSE_PROJECT_ID = process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID || "buspulse-493407";
 
 const publicEnvSchema = z.object({
   NEXT_PUBLIC_FIREBASE_API_KEY: z.string().optional(),

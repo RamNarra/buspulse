@@ -9,6 +9,7 @@ import { onSchedule } from "firebase-functions/v2/scheduler";
 
 import { perpDistToPolyline, classifyAnomaly } from "./anomaly-math";
 import type { BusHealth, BusHealthStatus, BusLocation, RouteDoc } from "./models";
+import { FUNCTION_REGION } from "./region";
 
 // ── In-process route cache ────────────────────────────────────────────────────
 const ROUTE_CACHE_TTL_MS = 5 * 60_000;
@@ -37,7 +38,7 @@ const deviatedSince: Record<string, number | null> = {};
 // ── Scheduled function ────────────────────────────────────────────────────────
 
 export const detectAnomalies = onSchedule(
-  { schedule: "every 1 minutes", region: "asia-southeast1" },
+  { schedule: "every 1 minutes", region: FUNCTION_REGION },
   async () => {
     const db = admin.database();
     const fs = admin.firestore();

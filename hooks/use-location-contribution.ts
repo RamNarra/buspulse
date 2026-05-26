@@ -3,8 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { getDataSourceMode } from "@/lib/config/data-source";
-import { writePresenceHeartbeat } from "@/lib/firebase/realtime";
-import { publishDriverLocation } from "@/app/actions/driver";
+import { writePresenceHeartbeat, writeTrackerCandidate } from "@/lib/firebase/realtime";
 import { getCurrentAuthUser } from "@/lib/firebase/auth";
 
 type UseLocationContributionOptions = {
@@ -78,14 +77,10 @@ export function useLocationContribution({
           return;
         }
 
-        authUser.getIdToken().then((idToken) => {
-          void publishDriverLocation(busId, candidate, idToken).then((result: { ok: boolean; error?: string }) => {
-            if (!result.ok) {
-              setError(result.error ?? "Unknown error");
-            }
-          });
-        }).catch((err) => {
-          setError(err.message ?? "Failed to get ID token.");
+        void writeTrackerCandidate(candidate).then((result) => {
+          if (!result.ok) {
+            setError(result.error);
+          }
         });
       },
       (geoError) => {

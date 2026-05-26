@@ -2,7 +2,24 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Bus, LogOut, Settings, Loader2, Navigation, Activity, Clock, Zap, Radio, Crosshair, WifiOff, AlertOctagon, CheckCircle2 } from "lucide-react";
+import { 
+  Bus, 
+  LogOut, 
+  Settings, 
+  Loader2, 
+  Navigation, 
+  Activity, 
+  Clock, 
+  Zap, 
+  Radio, 
+  Crosshair, 
+  WifiOff, 
+  AlertOctagon, 
+  CheckCircle2, 
+  Sparkles, 
+  Layers 
+} from "lucide-react";
+import { getAuth } from "firebase/auth";
 
 import { BusMap } from "@/components/map/bus-map";
 import { useAuthSession } from "@/hooks/use-auth-session";
@@ -16,21 +33,25 @@ import { useAppStore } from "@/lib/store/app-store";
 export default function DashboardPage() {
   const router = useRouter();
   const { mode, user, isLoading: authLoading, signOut } = useAuthSession();
-  const { isMenuOpen, toggleMenu, setMenuOpen, triggerRecenter } = useAppStore();
+  const { isMenuOpen, toggleMenu, setMenuOpen, triggerRecenter, mapType, setMapType } = useAppStore();
   const { student, error: studentError, isLoading: studentLoading } =
     useCurrentStudentProfile(user);
 
   const { trackingState, isLeader, peerCount, manualOverride, setManualOverride } = useCrowdsourceTracking();
   const busId = (student ?? mockStudent).busId ?? mockBus.id;
-  const { fleet } = useFleetState(); // GLOBAL BUS VISIBILITY OVERRIDE
+  const { fleet } = useFleetState();
 
-  // ── Auto-promotion toast ────────────────────────────────────────────────────
-  // Show a toast when the user auto-transitions to BOARDED without clicking "Yes".
+  // AI delay explanation state
+  const [aiExplanation, setAiExplanation] = useState<string | null>(null);
+  const [isAiLoading, setIsAiLoading] = useState(false);
+  const [showMapPicker, setShowMapPicker] = useState(false);
+
+  // Auto-promotion toast logic
   const prevTrackingStateRef = useRef<string>("IDLE");
   const [showAutoJoinToast, setShowAutoJoinToast] = useState(false);
+  
   useEffect(() => {
     const prev = prevTrackingStateRef.current;
-    // Auto-promotion detected: was WAITING, now BOARDED, and user did NOT click "Yes"
     if (prev === "WAITING" && trackingState === "BOARDED" && manualOverride !== true) {
       setTimeout(() => setShowAutoJoinToast(true), 0);
     }
@@ -50,6 +71,32 @@ export default function DashboardPage() {
     }
   }, [authLoading, mode, router, user]);
 
+  const fetchAiExplanation = async () => {
+    setIsAiLoading(true);
+    setAiExplanation(null);
+    try {
+      const auth = getAuth();
+      const currentUser = auth.currentUser;
+      if (!currentUser) return;
+      const idToken = await currentUser.getIdToken();
+      const res = await fetch(`/api/explain/${busId}`, {
+        headers: {
+          Authorization: `Bearer ${idToken}`,
+        },
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setAiExplanation(data.explanation);
+      } else {
+        setAiExplanation("AI Transit Engine is currently offline.");
+      }
+    } catch {
+      setAiExplanation("Network error fetching transit rationale.");
+    } finally {
+      setIsAiLoading(false);
+    }
+  };
+
   const effectiveStudent = student ?? mockStudent;
   const accountInitial =
     user?.email?.slice(0, 1).toUpperCase() ??
@@ -57,76 +104,67 @@ export default function DashboardPage() {
   const accountName = user?.email ?? effectiveStudent.fullName;
 
   const busState = useCurrentBusState({ busId });
-
-  // Total students being served by this user's signal (all pingers on their route)
   const myRouteBus = fleet.find((b) => b.routeNumber === busId);
-  const studentsRelying = myRouteBus ? myRouteBus.activePingers - 1 : 0; // minus self
+  const studentsRelying = myRouteBus ? myRouteBus.activePingers - 1 : 0;
 
-  // Skeleton state: show when auth or student profile is loading
-  // (map still renders below; only the overlays are skeletonised)
   const isBootstrapping = (mode === "live" && authLoading) || studentLoading;
 
   if (isBootstrapping && !busState.bus) {
     return (
-      <div className="min-h-[100dvh] grid place-items-center bg-slate-950">
+      <div className="min-h-[100dvh] grid place-items-center bg-[#020617]">
         <div className="flex flex-col items-center gap-6">
           <div className="relative">
             <div className="absolute inset-0 bg-indigo-500 rounded-full blur-xl opacity-40 animate-pulse" />
-            <div className="w-16 h-16 bg-gradient-to-br from-indigo-500 to-fuchsia-600 rounded-2xl flex items-center justify-center shadow-lg relative z-10 border border-white/20">
-              <Bus className="w-8 h-8 text-white animate-bounce" />
+            <div className="w-16 h-16 bg-slate-900 rounded-2xl flex items-center justify-center border border-white/10 relative z-10">
+              <Bus className="w-8 h-8 text-indigo-400 animate-bounce" />
             </div>
           </div>
-          {/* Skeleton panels */}
-          <div className="w-72 space-y-3">
-            <div className="h-8 bg-white/10 rounded-xl animate-pulse" />
-            <div className="h-5 w-3/4 bg-white/8 rounded-xl animate-pulse" />
-            <div className="h-16 bg-white/6 rounded-2xl animate-pulse" />
+          <div className="w-72 space-y-3 text-center">
+            <div className="h-6 bg-white/5 rounded-xl animate-pulse" />
+            <div className="h-4 w-3/4 bg-white/5 rounded-xl animate-pulse mx-auto" />
           </div>
-          <div className="flex items-center gap-3 bg-white/10 backdrop-blur-md px-4 py-2 rounded-full border border-white/5">
+          <div className="flex items-center gap-2.5 bg-white/[0.04] backdrop-blur-md px-4 py-2 rounded-full border border-white/5">
             <Loader2 className="w-4 h-4 animate-spin text-indigo-400" />
-            <span className="text-sm font-medium text-slate-200 tracking-wide">Syncing fleet data...</span>
+            <span className="text-xs font-mono text-slate-300 uppercase tracking-widest">SYNCING_TELEMETRY</span>
           </div>
         </div>
       </div>
     );
   }
 
-  // Derive health status for the amber / red GPS banner
   const healthStatus = busState.health?.status ?? "healthy";
   const isUnhealthy = healthStatus !== "healthy" && healthStatus !== "degraded";
   const isEstimating = busState.isLoading || fleet.some((b) => b.estimated);
 
   return (
-    <div className="h-[100dvh] w-full flex flex-col relative bg-slate-900 overflow-hidden font-sans">
-
-      {/* Map Layer (Background) */}
+    <div className="h-[100dvh] w-full flex flex-col relative bg-[#020617] overflow-hidden font-sans">
+      
+      {/* Background Map */}
       <div className="absolute inset-0 z-0">
         <BusMap bus={busState.bus ?? mockBus} busLocation={busState.location} fleet={fleet} />
-        {/* Subtle Map Overlay Gradient */}
-        <div className="absolute inset-0 bg-gradient-to-b from-slate-950/40 via-transparent to-slate-950/80 pointer-events-none" />
+        {/* Soft overlay gradient */}
+        <div className="absolute inset-0 bg-gradient-to-t from-[#020617]/95 via-transparent to-[#020617]/50 pointer-events-none" />
       </div>
 
       {/* Floating Header */}
       <header className="absolute top-4 left-4 right-4 sm:top-6 sm:left-6 sm:right-6 z-40">
-        <div className="mx-auto max-w-5xl flex items-center justify-between bg-slate-950/70 backdrop-blur-xl border border-white/10 px-4 sm:px-6 py-3 rounded-3xl shadow-2xl">
+        <div className="mx-auto max-w-5xl flex items-center justify-between glass-header px-4 sm:px-6 py-3 rounded-2xl shadow-2xl">
           <div className="flex items-center gap-3">
-            <div className={`w-10 h-10 rounded-xl flex items-center justify-center shadow-inner transition-all duration-500 ${isLeader ? "bg-gradient-to-br from-emerald-400 to-teal-500 shadow-emerald-500/40" : "bg-gradient-to-br from-indigo-500 to-fuchsia-600"}`}>
-              {isLeader ? <Radio className="w-5 h-5 text-white animate-pulse" /> : <Bus className="w-5 h-5 text-white" />}
+            <div className={`w-9 h-9 rounded-xl flex items-center justify-center transition-all duration-500 ${isLeader ? "bg-emerald-500/20 border border-emerald-500/40" : "bg-indigo-500/20 border border-indigo-500/40"}`}>
+              {isLeader ? <Radio className="w-4 h-4 text-emerald-400 animate-pulse" /> : <Bus className="w-4 h-4 text-indigo-400" />}
             </div>
             <div>
-              <h1 className="text-lg font-bold text-white leading-tight tracking-tight">BusPulse</h1>
-              <div className="flex items-center gap-1.5">
+              <h1 className="text-sm font-bold text-white tracking-tight font-mono">BusPulse</h1>
+              <div className="flex items-center gap-1">
                 <span className={`w-1.5 h-1.5 rounded-full ${
                   trackingState === "BOARDED"
-                    ? "bg-emerald-400 animate-pulse"
+                    ? "bg-emerald-500 animate-pulse"
                     : trackingState === "WAITING"
-                    ? "bg-amber-400 animate-pulse"
+                    ? "bg-amber-500 animate-pulse"
                     : "bg-slate-500"
                 }`} />
-                <span className="text-[10px] font-bold text-slate-300 uppercase tracking-widest">
-                  {trackingState === "BOARDED"
-                    ? isLeader ? "GPS Leader" : "GPS Synced"
-                    : trackingState === "WAITING" ? "Waiting" : "Idle"}
+                <span className="text-[8px] font-mono text-slate-400 uppercase tracking-widest">
+                  {trackingState === "BOARDED" ? (isLeader ? "GPS_LEADER" : "GPS_ACTIVE") : trackingState === "WAITING" ? "WAITING" : "STANDBY"}
                 </span>
               </div>
             </div>
@@ -135,7 +173,7 @@ export default function DashboardPage() {
           <div className="relative">
             <button
               onClick={toggleMenu}
-              className="flex items-center justify-center w-11 h-11 rounded-full bg-slate-800 border-2 border-slate-700 text-white font-bold text-sm hover:border-indigo-500 hover:bg-slate-700 transition-all focus:outline-none shadow-lg"
+              className="flex items-center justify-center w-9 h-9 rounded-full bg-slate-900 border border-white/10 text-white font-mono text-xs hover:bg-slate-800 transition-all shadow-lg"
             >
               {accountInitial}
             </button>
@@ -143,30 +181,29 @@ export default function DashboardPage() {
             {isMenuOpen && (
               <>
                 <div className="fixed inset-0 z-40" onClick={() => setMenuOpen(false)} />
-                <div className="absolute right-0 mt-3 w-64 bg-slate-900/95 backdrop-blur-2xl rounded-3xl shadow-2xl border border-white/10 py-2 z-50 overflow-hidden transform origin-top-right transition-all">
-                  <div className="px-5 py-4 border-b border-white/5 bg-white/5">
-                    <p className="text-sm font-bold text-white truncate">{accountName}</p>
-                    <div className="flex items-center gap-2 mt-1.5">
-                      <span className="px-2 py-0.5 rounded-md bg-indigo-500/20 text-indigo-400 text-[10px] font-bold uppercase tracking-wider">Student</span>
-                    </div>
+                <div className="absolute right-0 mt-2 w-56 bg-slate-950/95 backdrop-blur-2xl rounded-2xl shadow-2xl border border-white/10 py-1.5 z-50 overflow-hidden transform origin-top-right transition-all font-mono">
+                  <div className="px-4 py-3 border-b border-white/[0.06] bg-white/[0.02]">
+                    <p className="text-[10px] text-slate-400 uppercase tracking-widest">Logged in as</p>
+                    <p className="text-xs font-bold text-white truncate mt-0.5">{accountName}</p>
+                    <span className="inline-block px-1.5 py-0.5 rounded bg-indigo-500/10 border border-indigo-500/20 text-indigo-400 text-[8px] font-bold uppercase tracking-wider mt-1.5">Student</span>
                   </div>
 
-                  <div className="p-2 space-y-1">
+                  <div className="p-1 space-y-0.5">
                     <button
                       onClick={() => { setMenuOpen(false); router.push("/settings"); }}
-                      className="w-full text-left px-4 py-2.5 rounded-xl flex items-center gap-3 text-sm font-medium text-slate-300 hover:text-white hover:bg-white/10 transition-colors"
+                      className="w-full text-left px-3 py-2 rounded-xl flex items-center gap-2.5 text-xs text-slate-300 hover:text-white hover:bg-white/5 transition-colors"
                     >
-                      <Settings className="w-4 h-4 text-slate-400" />
-                      Preferences
+                      <Settings className="w-3.5 h-3.5 text-slate-400" />
+                      System Config
                     </button>
 
                     {user && (
                       <button
                         onClick={() => { setMenuOpen(false); void signOut(); }}
-                        className="w-full text-left px-4 py-2.5 rounded-xl flex items-center gap-3 text-sm font-medium text-red-400 hover:text-red-300 hover:bg-red-500/10 transition-colors"
+                        className="w-full text-left px-3 py-2 rounded-xl flex items-center gap-2.5 text-xs text-red-400 hover:text-red-300 hover:bg-red-500/10 transition-colors"
                       >
-                        <LogOut className="w-4 h-4" />
-                        Sign out
+                        <LogOut className="w-3.5 h-3.5" />
+                        Disconnect
                       </button>
                     )}
                   </div>
@@ -177,33 +214,29 @@ export default function DashboardPage() {
         </div>
       </header>
 
-      {/* ── GPS HEALTH ALERT BANNER ─────────────────────────────────────────── */}
+      {/* SLA alerts banner */}
       {isUnhealthy && (
         <div className="absolute top-20 left-4 right-4 sm:left-6 sm:right-6 z-30">
           <div className="mx-auto max-w-5xl">
-            <div className={`backdrop-blur-md border rounded-2xl px-3 py-2 flex items-center gap-3 shadow-lg ${
+            <div className={`backdrop-blur-md border rounded-2xl px-3.5 py-2.5 flex items-center gap-3 shadow-lg ${
               healthStatus === "stranded" || healthStatus === "ghost"
                 ? "bg-red-500/10 border-red-500/20"
                 : "bg-amber-500/10 border-amber-500/20"
             }`}>
-              <div className={`w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0 ${
-                healthStatus === "stranded" || healthStatus === "ghost"
-                  ? "bg-red-500/20"
-                  : "bg-amber-500/20"
-              }`}>
+              <div className="w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0 bg-white/5">
                 {healthStatus === "ghost" || healthStatus === "offline"
                   ? <WifiOff className="w-3.5 h-3.5 text-red-400" />
                   : <AlertOctagon className="w-3.5 h-3.5 text-amber-400" />}
               </div>
               <div className="min-w-0">
-                <p className={`text-[10px] font-black uppercase tracking-widest ${
+                <p className={`text-[9px] font-mono uppercase tracking-widest ${
                   healthStatus === "stranded" || healthStatus === "ghost" ? "text-red-300" : "text-amber-300"
                 }`}>
-                  {healthStatus === "deviated" && "⚠️ Bus may be off-route — GPS extrapolating"}
-                  {healthStatus === "stranded" && "🔴 Bus appears stationary — confirming with driver"}
-                  {healthStatus === "ghost" && "🔴 GPS signal lost — last known position shown"}
-                  {healthStatus === "stale" && "⚠️ GPS signal is stale — position may be delayed"}
-                  {healthStatus === "offline" && "⚠️ Bus signal offline — contact college transport"}
+                  {healthStatus === "deviated" && "⚠️ BUS_DEVIATED: GPS position extrapolated"}
+                  {healthStatus === "stranded" && "🔴 BUS_STATIONARY: Confirming with driver"}
+                  {healthStatus === "ghost" && "🔴 SIGNAL_STALE: Last known location shown"}
+                  {healthStatus === "stale" && "⚠️ TIMEOUT: Signal delay detected"}
+                  {healthStatus === "offline" && "⚠️ FLEET_OFFLINE: Telemetry inactive"}
                 </p>
               </div>
             </div>
@@ -211,70 +244,64 @@ export default function DashboardPage() {
         </div>
       )}
 
-      
-      {/* MANUAL OVERRIDE TOGGLE */}
+      {/* Contribution override dialog */}
       {!isUnhealthy && mode === "live" && user && (
-        <div className="absolute bottom-8 left-1/2 -translate-x-1/2 z-40 w-11/12 max-w-sm">
-          <div className="bg-slate-900/90 backdrop-blur-xl border border-white/10 p-4 rounded-3xl shadow-2xl flex items-center justify-between">
-            <div>
-              <p className="text-sm font-bold text-white leading-tight">Are you in the bus?</p>
-              <p className="text-xs text-slate-400 font-medium">Help track the bus location</p>
+        <div className="absolute bottom-28 left-1/2 -translate-x-1/2 z-40 w-[calc(100%-2rem)] max-w-[340px]">
+          <div className="glass-panel p-3.5 rounded-2xl shadow-2xl flex items-center justify-between border border-white/[0.08]">
+            <div className="min-w-0">
+              <p className="text-xs font-bold text-white leading-tight">Boarded Bus {busState.bus?.code ?? mockBus.code}?</p>
+              <p className="text-[10px] text-slate-400 font-mono mt-0.5">CONTRIBUTE_TELEMETRY</p>
             </div>
             
-            <div className="flex bg-slate-800 rounded-full p-1 border border-white/5 relative">
+            <div className="flex bg-slate-900 rounded-lg p-0.5 border border-white/5 relative shrink-0">
               <button 
                 onClick={() => setManualOverride(false)}
-                className={`relative z-10 px-4 py-1.5 rounded-full text-sm font-bold transition-colors ${manualOverride === false ? 'text-white' : 'text-slate-400 hover:text-white'}`}
+                className={`relative z-10 px-3.5 py-1.5 rounded-md text-[11px] font-bold transition-colors ${manualOverride === false ? 'text-white' : 'text-slate-400 hover:text-white'}`}
               >
                 No
               </button>
               <button 
                 onClick={() => setManualOverride(true)}
-                className={`relative z-10 px-4 py-1.5 rounded-full text-sm font-bold transition-colors ${manualOverride === true || trackingState === 'BOARDED' ? 'text-white' : 'text-slate-400 hover:text-white'}`}
+                className={`relative z-10 px-3.5 py-1.5 rounded-md text-[11px] font-bold transition-colors ${manualOverride === true || trackingState === 'BOARDED' ? 'text-white' : 'text-slate-400 hover:text-white'}`}
               >
                 Yes
               </button>
-              {/* Highlight Pill */}
               <div 
-                className={`absolute top-1 bottom-1 w-1/2 bg-indigo-500 rounded-full transition-transform duration-300 ease-out ${(manualOverride === true || (manualOverride === null && trackingState === 'BOARDED')) ? 'translate-x-full' : 'translate-x-0'}`}
+                className={`absolute top-0.5 bottom-0.5 w-[calc(50%-2px)] bg-indigo-500 rounded-md transition-transform duration-300 ease-out ${(manualOverride === true || (manualOverride === null && trackingState === 'BOARDED')) ? 'translate-x-[calc(100%+2px)]' : 'translate-x-0.5'}`}
               />
             </div>
           </div>
         </div>
       )}
 
-      {/* Estimation notice (dead reckoning) */}
+      {/* GPS estimation alert */}
       {!isUnhealthy && isEstimating && (
         <div className="absolute top-20 left-4 right-4 sm:left-6 sm:right-6 z-30">
           <div className="mx-auto max-w-5xl">
-            <div className="bg-amber-500/8 backdrop-blur-md border border-amber-500/15 rounded-2xl px-3 py-2 flex items-center gap-3 shadow-lg">
-              <div className="w-7 h-7 rounded-full bg-amber-500/15 flex items-center justify-center flex-shrink-0">
-                <Loader2 className="w-3.5 h-3.5 text-amber-400 animate-spin" />
-              </div>
-              <p className="text-[10px] font-black text-amber-300/80 uppercase tracking-widest">
-                GPS syncing — extrapolating position
+            <div className="bg-amber-500/5 backdrop-blur-md border border-amber-500/10 rounded-2xl px-3 py-2 flex items-center gap-2.5 shadow-lg">
+              <Loader2 className="w-3.5 h-3.5 text-amber-400 animate-spin" />
+              <p className="text-[9px] font-mono text-amber-300 uppercase tracking-widest">
+                EXTRAPOLATING_POSITION_DEAD_RECKONING
               </p>
             </div>
           </div>
         </div>
       )}
 
-      {/* ── HERO LEADER BANNER ────────────────────────────────────────────────── */}
+      {/* Leader Contribution HUD */}
       {isLeader && trackingState === "BOARDED" && (
         <div className="absolute top-20 left-4 right-4 sm:left-6 sm:right-6 z-30">
           <div className="mx-auto max-w-5xl">
-            <div className="bg-emerald-500/10 backdrop-blur-md border border-emerald-500/20 rounded-2xl px-3 py-2 flex items-center gap-3 shadow-lg shadow-emerald-900/10 animate-pulse-slow">
-              <div className="w-7 h-7 rounded-full bg-emerald-500/20 flex items-center justify-center flex-shrink-0">
-                <Zap className="w-3.5 h-3.5 text-emerald-400" />
-              </div>
+            <div className="bg-emerald-500/5 backdrop-blur-md border border-emerald-500/10 rounded-2xl px-3.5 py-2.5 flex items-center gap-3 shadow-lg">
+              <Zap className="w-4 h-4 text-emerald-400 animate-pulse" />
               <div className="min-w-0">
-                <p className="text-[10px] font-black text-emerald-300 uppercase tracking-widest">
-                  🟢 Powering {busId} Radar (ID: {user?.uid.slice(-4)})
+                <p className="text-[9px] font-mono text-emerald-400 uppercase tracking-widest">
+                  🟢 CONDUIT_ACTIVE (ID: {user?.uid.slice(-4)})
                 </p>
-                <p className="text-[9px] text-emerald-400/70 font-medium leading-tight">
+                <p className="text-[9px] text-slate-400 font-medium leading-tight mt-0.5">
                   {studentsRelying > 0
-                    ? `${studentsRelying} other student${studentsRelying === 1 ? "" : "s"} on this route are relying on your signal.`
-                    : `Keep screen on — you are the sole GPS source for this route.`}
+                    ? `${studentsRelying} students are receiving telemetry updates from your signal.`
+                    : `Keep app active. You are currently the primary telemetry provider.`}
                 </p>
               </div>
             </div>
@@ -282,42 +309,18 @@ export default function DashboardPage() {
         </div>
       )}
 
-      {/* ── FIRST BOARDER BANNER ─────────────────────────────────────────────── */}
-      {/* Shown when user manually said "Yes" and they are the only active pinger */}
-      {trackingState === "BOARDED" && manualOverride === true && peerCount === 0 && (
-        <div className="absolute top-20 left-4 right-4 sm:left-6 sm:right-6 z-30">
-          <div className="mx-auto max-w-5xl">
-            <div className="bg-indigo-500/10 backdrop-blur-md border border-indigo-500/20 rounded-2xl px-3 py-2 flex items-center gap-3 shadow-lg">
-              <div className="w-7 h-7 rounded-full bg-indigo-500/20 flex items-center justify-center flex-shrink-0 animate-pulse">
-                <Radio className="w-3.5 h-3.5 text-indigo-400" />
-              </div>
-              <div className="min-w-0">
-                <p className="text-[10px] font-black text-indigo-300 uppercase tracking-widest">
-                  🚌 You&apos;re the first signal on Bus {busId}!
-                </p>
-                <p className="text-[9px] text-indigo-400/70 font-medium leading-tight">
-                  Students nearby will auto-join when the bus moves.
-                </p>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* ── AUTO-JOIN TOAST ──────────────────────────────────────────────────── */}
+      {/* Auto-join toast */}
       {showAutoJoinToast && (
         <div className="absolute top-20 left-4 right-4 sm:left-6 sm:right-6 z-50 pointer-events-none">
           <div className="mx-auto max-w-5xl">
-            <div className="bg-emerald-500/15 backdrop-blur-md border border-emerald-500/30 rounded-2xl px-4 py-3 flex items-center gap-3 shadow-xl">
-              <div className="w-8 h-8 rounded-full bg-emerald-500/25 flex items-center justify-center flex-shrink-0">
-                <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-              </div>
+            <div className="bg-emerald-500/10 backdrop-blur-md border border-emerald-500/20 rounded-2xl px-4 py-3 flex items-center gap-3 shadow-xl">
+              <CheckCircle2 className="w-4 h-4 text-emerald-400" />
               <div className="min-w-0">
-                <p className="text-[11px] font-black text-emerald-300 uppercase tracking-widest">
-                  Welcome aboard! ✅
+                <p className="text-[10px] font-mono text-emerald-300 uppercase tracking-widest">
+                  AUTO_MERGED_SUCCESSFULLY
                 </p>
-                <p className="text-[9px] text-emerald-400/70 font-medium leading-tight">
-                  Bus {busId} detected nearby — auto-confirmed.
+                <p className="text-[9px] text-slate-400 leading-tight mt-0.5">
+                  Proximity merge completed. You are synced to bus {busId}.
                 </p>
               </div>
             </div>
@@ -325,84 +328,117 @@ export default function DashboardPage() {
         </div>
       )}
 
-      {/* Floating Bottom Info Card */}
+      {/* Floating Map Picker & Recenter Panel */}
+      <div className="absolute top-20 right-4 sm:right-6 z-30 flex flex-col gap-2">
+        <button
+          onClick={triggerRecenter}
+          className="w-9 h-9 rounded-full bg-slate-950/80 border border-white/10 flex items-center justify-center text-indigo-400 hover:text-white hover:bg-indigo-500 transition-all shadow-xl"
+          title="Recenter"
+        >
+          <Crosshair className="w-4 h-4" />
+        </button>
+
+        <div className="relative">
+          <button
+            onClick={() => setShowMapPicker(!showMapPicker)}
+            className="w-9 h-9 rounded-full bg-slate-950/80 border border-white/10 flex items-center justify-center text-indigo-400 hover:text-white hover:bg-indigo-500 transition-all shadow-xl"
+            title="Map Layer"
+          >
+            <Layers className="w-4 h-4" />
+          </button>
+          
+          {showMapPicker && (
+            <>
+              <div className="fixed inset-0 z-40" onClick={() => setShowMapPicker(false)} />
+              <div className="absolute right-11 top-0 w-28 bg-slate-950 border border-white/10 rounded-xl p-1 shadow-2xl z-50 flex flex-col gap-0.5 font-mono text-[9px]">
+                {(["roadmap", "satellite", "hybrid", "terrain"] as const).map((type) => (
+                  <button
+                    key={type}
+                    onClick={() => { setMapType(type); setShowMapPicker(false); }}
+                    className={`px-2.5 py-1.5 rounded-lg text-left uppercase font-bold transition-all ${mapType === type ? "bg-indigo-500 text-white" : "text-slate-400 hover:text-white hover:bg-white/5"}`}
+                  >
+                    {type}
+                  </button>
+                ))}
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+
+      {/* Floating Bottom HUD Card */}
       <div className="absolute bottom-4 left-4 right-4 sm:left-auto sm:right-6 sm:w-[360px] z-20 flex flex-col gap-3">
         
-        <div className="flex items-center justify-between gap-3">
-          {/* Recenter Button */}
-          <button
-            onClick={triggerRecenter}
-            className="w-10 h-10 rounded-full bg-slate-950/80 backdrop-blur-md border border-white/10 flex items-center justify-center text-indigo-400 hover:text-white hover:bg-indigo-500 transition-all shadow-xl"
-            title="Recenter Map"
-          >
-            <Crosshair className="w-5 h-5" />
-          </button>
-
-          {/* Crowdsourced Contribution Badge */}
-          <div className="bg-slate-950/80 backdrop-blur-md border border-white/10 px-3 py-1.5 rounded-full flex items-center gap-2 shadow-xl">
-            <span className="relative flex h-2 w-2">
-              {trackingState !== "IDLE" && (
-                <span className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${trackingState === "BOARDED" ? "bg-emerald-400" : "bg-amber-400"}`}></span>
-              )}
-              <span className={`relative inline-flex rounded-full h-2 w-2 ${trackingState === "BOARDED" ? "bg-emerald-500" : trackingState === "WAITING" ? "bg-amber-500" : "bg-slate-500"}`}></span>
-            </span>
-            <span className="text-[9px] font-bold text-white uppercase tracking-wider">
-              {trackingState === "BOARDED" ? "GPS Synced" : trackingState === "WAITING" ? "Locating" : "Standby"}
-            </span>
+        {/* Main Status Panel */}
+        <div className="glass-panel rounded-3xl p-4 shadow-2xl border border-white/[0.08] relative overflow-hidden">
+          <div className="absolute top-0 right-0 p-4 opacity-5 pointer-events-none">
+            <Activity className="w-20 h-20 text-white" />
           </div>
-        </div>
 
-        {/* Main Status Card (Condensed) */}
-        <div className="bg-slate-900/70 backdrop-blur-2xl rounded-3xl border border-white/10 p-0.5 shadow-2xl overflow-hidden relative">
-          <div className="absolute inset-0 bg-gradient-to-br from-indigo-500/5 to-fuchsia-500/5 pointer-events-none" />
-          
-          <div className="bg-slate-950/40 rounded-[1.4rem] p-4 relative z-10">
-            <div className="flex items-center justify-between mb-3">
+          <div className="relative z-10">
+            <div className="flex items-center justify-between mb-3.5">
               <div>
-                <h2 className="text-2xl font-black text-transparent bg-clip-text bg-gradient-to-r from-white to-slate-400 tracking-tight">
+                <h2 className="text-2xl font-black font-mono text-white tracking-tight">
                   {busState.bus?.code ?? mockBus.code}
                 </h2>
-                <div className="flex items-center gap-1.5 text-[10px] font-bold text-slate-400 uppercase tracking-tighter">
+                <div className="flex items-center gap-1 text-[9px] font-mono text-slate-400 uppercase tracking-wider mt-0.5">
                   <Navigation className="w-3 h-3 text-indigo-400" />
                   Route {busId}
                 </div>
               </div>
               
-              <div className={`px-2 py-1 rounded-lg border flex items-center gap-1.5 ${fleet.length > 0 ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-400" : "bg-slate-800 border-slate-700 text-slate-400"}`}>
-                <Activity className={`w-3 h-3 ${fleet.length > 0 ? "animate-pulse" : ""}`} />
-                <span className="text-[9px] font-black uppercase tracking-widest">{fleet.length > 0 ? "Live" : "Offline"}</span>
+              <div className={`px-2.5 py-1 rounded-lg border flex items-center gap-1.5 font-mono text-[9px] font-bold uppercase ${fleet.length > 0 ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-400" : "bg-slate-900 border-white/5 text-slate-400"}`}>
+                <span className={`w-1.5 h-1.5 rounded-full ${fleet.length > 0 ? "bg-emerald-400 animate-pulse" : "bg-slate-600"}`} />
+                {fleet.length > 0 ? "Fleet_Live" : "Offline"}
               </div>
             </div>
 
-            {/* Simplified status line */}
-            <div className="bg-white/5 rounded-xl p-2.5 border border-white/5 mb-3">
-              <p className="text-[11px] text-white font-semibold flex items-center gap-2">
-                <span className={`w-1.5 h-1.5 rounded-full ${trackingState === "BOARDED" ? "bg-emerald-500" : "bg-indigo-500"} animate-pulse`} />
-                {trackingState === "BOARDED" && peerCount > 0 
-                  ? `${peerCount + 1} students detected on this bus.`
-                  : `Tracking ${fleet.length} active fleet signals.`}
-              </p>
-              {fleet.some((b) => b.estimated) && (
-                <p className="text-[9px] text-amber-400/70 font-medium mt-1 pl-3.5">
-                  ⚠️ Some signals estimated.
-                </p>
+            {/* AI Assistant Explanation Row */}
+            <div className="bg-slate-950/80 rounded-2xl p-3 border border-white/5 mb-3.5">
+              {aiExplanation ? (
+                <div className="space-y-1.5">
+                  <p className="text-[10px] font-mono text-indigo-400 font-bold uppercase tracking-wider flex items-center gap-1">
+                    <Sparkles className="w-3.5 h-3.5 text-indigo-400 animate-pulse" />
+                    AI Transit Operator
+                  </p>
+                  <p className="text-xs text-slate-300 leading-normal font-medium">{aiExplanation}</p>
+                </div>
+              ) : (
+                <div className="flex items-center justify-between gap-3">
+                  <p className="text-[11px] text-slate-400 font-medium">
+                    {trackingState === "BOARDED" && peerCount > 0 
+                      ? `${peerCount + 1} signals online in this bus.`
+                      : `Awaiting delay intelligence metrics.`}
+                  </p>
+                  <button
+                    onClick={fetchAiExplanation}
+                    disabled={isAiLoading}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-indigo-500 hover:bg-indigo-600 text-white font-mono text-[9px] font-bold uppercase tracking-wider transition-all shrink-0 active:scale-[0.98] disabled:opacity-50"
+                  >
+                    {isAiLoading ? (
+                      <Loader2 className="w-3 h-3 animate-spin" />
+                    ) : (
+                      <Sparkles className="w-3 h-3" />
+                    )}
+                    Ask AI
+                  </button>
+                </div>
               )}
             </div>
 
-            <div className="flex items-center justify-between px-0.5">
-              <div className="flex items-center gap-1.5 text-[9px] font-bold text-slate-500 uppercase">
-                <Clock className="w-3 h-3" />
-                Network Sync Active
+            <div className="flex items-center justify-between border-t border-white/[0.06] pt-3 text-[9px] font-mono uppercase tracking-wider text-slate-500">
+              <div className="flex items-center gap-1">
+                <Clock className="w-3 h-3 text-slate-600" />
+                Telemetry sync
               </div>
-              
-              <div className="text-[9px] font-black text-indigo-400 bg-indigo-500/10 px-2 py-0.5 rounded-md uppercase tracking-widest">
-                {fleet.reduce((acc, b) => acc + b.activePingers, 0)} Total Nodes
+              <div className="text-indigo-400 font-bold">
+                {fleet.reduce((acc, b) => acc + b.activePingers, 0)} Active Nodes
               </div>
             </div>
 
             {studentError && (
-              <div className="mt-3 p-2 bg-red-500/10 border border-red-500/20 rounded-lg text-[9px] text-red-400 font-bold uppercase tracking-tight">
-                Profile Sync Error
+              <div className="mt-3 p-2 bg-red-500/10 border border-red-500/20 rounded-xl text-[9px] font-mono text-red-400 uppercase tracking-widest text-center">
+                PROFILE_SYNC_ERROR
               </div>
             )}
           </div>

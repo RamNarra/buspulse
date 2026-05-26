@@ -47,6 +47,7 @@ exports.notifyApproachingStudents = void 0;
 const admin = __importStar(require("firebase-admin"));
 const database_1 = require("firebase-functions/v2/database");
 const geo_1 = require("./geo");
+const region_1 = require("./region");
 /** Radius (m) within which the bus is "at" a stop and we notify waiting students. */
 const NOTIFY_RADIUS_M = 400;
 /**
@@ -59,11 +60,12 @@ const STOPS_AHEAD = 2;
  * Prevents spamming when the bus lingers near a stop.
  */
 const DEDUP_WINDOW_MS = 5 * 60000; // 5 minutes
-// In-process dedup state: busId → stopId → lastNotifiedAt
-const notifiedAt = {};
+const busRouteCache = {};
+const routeStopsCache = {};
+const CACHE_TTL_MS = 5 * 60000; // 5 minutes
 exports.notifyApproachingStudents = (0, database_1.onValueWritten)({
     ref: "busLocations/{busId}",
-    region: "asia-southeast1",
+    region: region_1.FUNCTION_REGION,
 }, async (event) => {
     const busId = event.params.busId;
     const location = event.data.after.val();
@@ -72,25 +74,42 @@ exports.notifyApproachingStudents = (0, database_1.onValueWritten)({
     const db = admin.database();
     const firestore = admin.firestore();
     const messaging = admin.messaging();
-    // 1. Fetch the bus document to get routeId
-    const busSnap = await firestore.collection("buses").doc(busId).get();
-    if (!busSnap.exists)
-        return;
-    const routeId = busSnap.data()?.routeId;
-    if (!routeId)
-        return;
-    // 2. Fetch ordered stops for this route
-    const stopsSnap = await firestore
-        .collection("stops")
-        .where("routeId", "==", routeId)
-        .orderBy("order", "asc")
-        .get();
-    if (stopsSnap.empty)
-        return;
-    const stops = stopsSnap.docs.map((d) => ({
-        id: d.id,
-        ...d.data(),
-    }));
+    const now = Date.now();
+    // 1. Fetch or resolve the bus document to get routeId
+    let routeId = "";
+    const cachedBus = busRouteCache[busId];
+    if (cachedBus && now - cachedBus.cachedAt < CACHE_TTL_MS) {
+        routeId = cachedBus.routeId;
+    }
+    else {
+        const busSnap = await firestore.collection("buses").doc(busId).get();
+        if (!busSnap.exists)
+            return;
+        routeId = busSnap.data()?.routeId;
+        if (!routeId)
+            return;
+        busRouteCache[busId] = { routeId, cachedAt: now };
+    }
+    // 2. Fetch or resolve ordered stops for this route
+    let stops = [];
+    const cachedStops = routeStopsCache[routeId];
+    if (cachedStops && now - cachedStops.cachedAt < CACHE_TTL_MS) {
+        stops = cachedStops.stops;
+    }
+    else {
+        const stopsSnap = await firestore
+            .collection("stops")
+            .where("routeId", "==", routeId)
+            .orderBy("order", "asc")
+            .get();
+        if (stopsSnap.empty)
+            return;
+        stops = stopsSnap.docs.map((d) => ({
+            id: d.id,
+            ...d.data(),
+        }));
+        routeStopsCache[routeId] = { stops, cachedAt: now };
+    }
     // 3. Find which stop the bus is currently near (the "current" stop)
     let currentStopIndex = -1;
     for (let i = 0; i < stops.length; i++) {
@@ -107,13 +126,14 @@ exports.notifyApproachingStudents = (0, database_1.onValueWritten)({
     if (targetIndex >= stops.length)
         return;
     const targetStop = stops[targetIndex];
-    // 5. Dedup — skip if we already sent this notification recently
-    if (!notifiedAt[busId])
-        notifiedAt[busId] = {};
-    const lastSent = notifiedAt[busId][targetStop.id] ?? 0;
-    if (Date.now() - lastSent < DEDUP_WINDOW_MS)
+    // 5. Dedup — check RTDB first to avoid expensive Firestore queries!
+    const lastSentRef = db.ref(`notificationLogs/${busId}/${targetStop.id}`);
+    const lastSentSnap = await lastSentRef.get();
+    const lastSent = lastSentSnap.val() ?? 0;
+    if (now - lastSent < DEDUP_WINDOW_MS)
         return;
-    notifiedAt[busId][targetStop.id] = Date.now();
+    // Update the deduplication timestamp immediately to prevent race conditions
+    await lastSentRef.set(now);
     // 6. Find students assigned to the target stop with FCM tokens
     const studentsSnap = await firestore
         .collection("students")

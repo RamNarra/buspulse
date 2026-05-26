@@ -25,8 +25,14 @@ function perpDistToSegment(p, a, b) {
     const ab = haversineM(a, b);
     if (ab < 1)
         return haversineM(p, a);
-    const t = ((p.lat - a.lat) * (b.lat - a.lat) + (p.lng - a.lng) * (b.lng - a.lng)) /
-        ((b.lat - a.lat) ** 2 + (b.lng - a.lng) ** 2);
+    // Correct latitudinal distortion by scaling longitude differences by cos(mean latitude)
+    const meanLat = (a.lat + b.lat) / 2;
+    const cosLat = Math.cos((meanLat * Math.PI) / 180);
+    const dx = (b.lng - a.lng) * cosLat;
+    const dy = b.lat - a.lat;
+    const px = (p.lng - a.lng) * cosLat;
+    const py = p.lat - a.lat;
+    const t = (px * dx + py * dy) / (dx * dx + dy * dy);
     if (t < 0)
         return haversineM(p, a);
     if (t > 1)

@@ -10,6 +10,7 @@ import {
   isCandidateStale,
 } from "./scoring";
 import type { BusHealth, BusLocation, TrackerCandidate } from "./models";
+import { FUNCTION_REGION } from "./region";
 
 export { detectAnomalies } from "./anomaly";
 export { exportBusLocationToBigQuery } from "./bigquery-export";
@@ -41,7 +42,7 @@ const emaState: Record<
 export const aggregateBusLocation = onValueWritten(
   {
     ref: "trackerCandidates/{busId}/{uuid}",
-    region: "asia-southeast1",
+    region: FUNCTION_REGION,
   },
   async (event) => {
     const busId = event.params.busId;
@@ -56,14 +57,7 @@ export const aggregateBusLocation = onValueWritten(
         note: "No active contributors.",
       });
 
-      try {
-        const firestore = admin.firestore();
-        await firestore.collection("live_buses").doc(busId).set({
-          estimated: true,
-          updatedAt: Date.now(),
-          activePingers: 0
-        }, { merge: true });
-      } catch (e) {}
+
 
       return;
     }
@@ -119,14 +113,7 @@ export const aggregateBusLocation = onValueWritten(
       };
       await db.ref(`busHealth/${busId}`).set(health);
 
-      try {
-        const firestore = admin.firestore();
-        await firestore.collection("live_buses").doc(busId).set({
-          estimated: true,
-          updatedAt: now,
-          activePingers: 0
-        }, { merge: true });
-      } catch (e) {}
+
 
       return;
     }
@@ -166,21 +153,7 @@ export const aggregateBusLocation = onValueWritten(
       [`busesByGeohash/${gh5}/${busId}`]: now,
     });
 
-    // 8b. Synchronize with Firestore live_buses for web clients
-    try {
-      const firestore = admin.firestore();
-      await firestore.collection("live_buses").doc(busId).set({
-        lat: derived.lat,
-        lng: derived.lng,
-        speed: derived.speed ?? null,
-        heading: derived.heading ?? null,
-        activePingers: derived.sourceCount ?? 1,
-        estimated: false,
-        updatedAt: now
-      }, { merge: true });
-    } catch (e) {
-      console.error(`Failed to sync bus ${busId} to firestore:`, e);
-    }
+
 
     // 9. Snap-to-roads (Phase 2.2) — fire-and-forget, throttled to 5 s.
     //    Persists snapped path to busPaths/{busId} for the route-line overlay.

@@ -2,9 +2,16 @@ import * as admin from "firebase-admin";
 
 if (!admin.apps.length) {
   try {
+    const databaseURL =
+      process.env.FIREBASE_DATABASE_URL ??
+      process.env.NEXT_PUBLIC_FIREBASE_DATABASE_URL ??
+      (process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID
+        ? `https://${process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID}-default-rtdb.firebaseio.com`
+        : undefined);
+
     admin.initializeApp({
       credential: admin.credential.applicationDefault(),
-      databaseURL: `https://${process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID}-default-rtdb.firebaseio.com`
+      ...(databaseURL ? { databaseURL } : {}),
     });
   } catch (error) {
     console.log("Firebase admin initialization error", error);

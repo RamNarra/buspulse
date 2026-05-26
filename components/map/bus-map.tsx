@@ -173,7 +173,7 @@ function MapCentering({
 }
 
 export function BusMap({ bus, busLocation, fleet = [] }: BusMapProps) {
-  const [userLocation, setUserLocation] = useState<{ lat: number; lng: number } | null>(null);
+  const [userLocation, setUserLocation] = useState<{ lat: number; lng: number; updatedAt: number } | null>(null);
   const { trackingState, peerCount } = useCrowdsourceTracking();
   
   const mapType = useAppStore((state) => state.mapType);
@@ -190,17 +190,20 @@ export function BusMap({ bus, busLocation, fleet = [] }: BusMapProps) {
   const isOptimisticallyBoarded = trackingState === "BOARDED" && userLocation;
   const backendHasOurBus = fleet.some(f => f.routeNumber === bus.code);
 
-  const augmentedFleet = [...fleet];
-  if (isOptimisticallyBoarded && !backendHasOurBus) {
-    augmentedFleet.push({
-      routeNumber: bus.code,
-      lat: userLocation.lat,
-      lng: userLocation.lng,
-      updatedAt: Date.now(),
-      activePingers: peerCount + 1,
-      estimated: false,
-    });
-  }
+  const augmentedFleet = useMemo(() => {
+    const next = [...fleet];
+    if (isOptimisticallyBoarded && !backendHasOurBus && userLocation) {
+      next.push({
+        routeNumber: bus.code,
+        lat: userLocation.lat,
+        lng: userLocation.lng,
+        updatedAt: userLocation.updatedAt,
+        activePingers: peerCount + 1,
+        estimated: false,
+      });
+    }
+    return next;
+  }, [backendHasOurBus, bus.code, fleet, isOptimisticallyBoarded, peerCount, userLocation]);
 
   // Cluster nearby bus markers — majority-vote labelling for clubbed buses.
   const clusteredFleet = useMemo(() => clusterFleet(augmentedFleet), [augmentedFleet]);
@@ -214,6 +217,7 @@ export function BusMap({ bus, busLocation, fleet = [] }: BusMapProps) {
         setUserLocation({
           lat: position.coords.latitude,
           lng: position.coords.longitude,
+          updatedAt: Date.now(),
         });
       },
       () => {},

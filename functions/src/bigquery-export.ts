@@ -26,6 +26,7 @@ import * as admin from "firebase-admin";
 import { onValueWritten } from "firebase-functions/v2/database";
 
 import type { BusLocation } from "./models";
+import { FUNCTION_REGION } from "./region";
 
 const PROJECT_ID = process.env.GCLOUD_PROJECT ?? process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID ?? "";
 const DATASET = process.env.BIGQUERY_DATASET ?? "buspulse";
@@ -51,7 +52,7 @@ async function getBigQueryClient() {
 export const exportBusLocationToBigQuery = onValueWritten(
   {
     ref: "busLocations/{busId}",
-    region: "asia-southeast1",
+    region: FUNCTION_REGION,
   },
   async (event) => {
     const busId = event.params.busId;

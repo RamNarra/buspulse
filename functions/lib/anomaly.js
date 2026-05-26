@@ -42,6 +42,7 @@ exports.detectAnomalies = void 0;
 const admin = __importStar(require("firebase-admin"));
 const scheduler_1 = require("firebase-functions/v2/scheduler");
 const anomaly_math_1 = require("./anomaly-math");
+const region_1 = require("./region");
 // ── In-process route cache ────────────────────────────────────────────────────
 const ROUTE_CACHE_TTL_MS = 5 * 60000;
 const routeCache = new Map();
@@ -67,7 +68,7 @@ async function getRouteCached(routeId) {
 const stationarySince = {};
 const deviatedSince = {};
 // ── Scheduled function ────────────────────────────────────────────────────────
-exports.detectAnomalies = (0, scheduler_1.onSchedule)({ schedule: "every 1 minutes", region: "asia-southeast1" }, async () => {
+exports.detectAnomalies = (0, scheduler_1.onSchedule)({ schedule: "every 1 minutes", region: region_1.FUNCTION_REGION }, async () => {
     const db = admin.database();
     const fs = admin.firestore();
     const now = Date.now();

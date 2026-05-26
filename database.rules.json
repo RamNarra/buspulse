@@ -13,61 +13,61 @@
     "trackerMappings": {
       "$uuid": {
         ".read":  "auth != null && data.child('uid').val() === auth.uid",
-        ".write": "auth != null && (!data.exists() || data.child('uid').val() === auth.uid) && (!newData.exists() || newData.child('uid').val() === auth.uid)"
+        ".write": "auth != null && (!data.exists() || data.child('uid').val() === auth.uid) && (!newData.exists() || (newData.child('uid').val() === auth.uid && newData.child('busId').val() === auth.token.assignedBusId))"
       }
     },
 
     "trackerCandidates": {
       "$busId": {
-        ".read": "auth != null",
+        ".read": "auth != null && (auth.token.role === 'admin' || auth.token.tier === 'god' || auth.token.assignedBusId === $busId)",
         "$uuid": {
-          ".write": "auth != null && root.child('trackerMappings').child($uuid).child('uid').val() === auth.uid && root.child('trackerMappings').child($uuid).child('busId').val() === $busId"
+          ".write": "auth != null && auth.token.role === 'student' && auth.token.assignedBusId === $busId && root.child('trackerMappings').child($uuid).child('uid').val() === auth.uid && root.child('trackerMappings').child($uuid).child('busId').val() === $busId"
         }
       }
     },
 
     "approachingStudents": {
       "$busId": {
-        ".read": "auth != null",
+        ".read": "auth != null && (auth.token.role === 'admin' || auth.token.tier === 'god' || auth.token.assignedBusId === $busId)",
         "$uuid": {
-          ".write": "auth != null && root.child('trackerMappings').child($uuid).child('uid').val() === auth.uid && root.child('trackerMappings').child($uuid).child('busId').val() === $busId"
+          ".write": "auth != null && auth.token.role === 'student' && auth.token.assignedBusId === $busId && root.child('trackerMappings').child($uuid).child('uid').val() === auth.uid && root.child('trackerMappings').child($uuid).child('busId').val() === $busId"
         }
       }
     },
 
     "trackerAssignments": {
       "$busId": {
-        ".read":  "auth != null",
+        ".read":  "auth != null && (auth.token.role === 'admin' || auth.token.tier === 'god' || auth.token.assignedBusId === $busId)",
         "leader": {
-          ".write": "auth != null && (!newData.exists() || (root.child('trackerMappings').child(newData.child('uid').val()).child('uid').val() === auth.uid && root.child('trackerMappings').child(newData.child('uid').val()).child('busId').val() === $busId))"
+          ".write": "auth != null && auth.token.assignedBusId === $busId && (!newData.exists() || (root.child('trackerMappings').child(newData.child('uid').val()).child('uid').val() === auth.uid && root.child('trackerMappings').child(newData.child('uid').val()).child('busId').val() === $busId))"
         }
       }
     },
 
     "busLocations": {
       "$busId": {
-        ".read":  "auth != null",
+        ".read":  "auth != null && (auth.token.role === 'admin' || auth.token.tier === 'god' || auth.token.assignedBusId === $busId)",
         ".write": false
       }
     },
 
     "busHealth": {
       "$busId": {
-        ".read":  "auth != null",
+        ".read":  "auth != null && (auth.token.role === 'admin' || auth.token.tier === 'god' || auth.token.assignedBusId === $busId)",
         ".write": false
       }
     },
 
     "busesByGeohash": {
       "$geohash": {
-        ".read":  "auth != null",
+        ".read":  "auth != null && (auth.token.role === 'admin' || auth.token.tier === 'god')",
         ".write": false
       }
     },
 
     "busPaths": {
       "$busId": {
-        ".read":  "auth != null",
+        ".read":  "auth != null && (auth.token.role === 'admin' || auth.token.tier === 'god' || auth.token.assignedBusId === $busId)",
         ".write": false
       }
     },

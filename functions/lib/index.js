@@ -40,6 +40,7 @@ const geo_1 = require("./geo");
 const geohash_1 = require("./geohash");
 const snap_to_roads_1 = require("./snap-to-roads");
 const scoring_1 = require("./scoring");
+const region_1 = require("./region");
 var anomaly_1 = require("./anomaly");
 Object.defineProperty(exports, "detectAnomalies", { enumerable: true, get: function () { return anomaly_1.detectAnomalies; } });
 var bigquery_export_1 = require("./bigquery-export");
@@ -65,7 +66,7 @@ const emaState = {};
  */
 exports.aggregateBusLocation = (0, database_1.onValueWritten)({
     ref: "trackerCandidates/{busId}/{uuid}",
-    region: "asia-southeast1",
+    region: region_1.FUNCTION_REGION,
 }, async (event) => {
     const busId = event.params.busId;
     // 1. Read all candidates for this bus in a single round-trip
@@ -77,15 +78,6 @@ exports.aggregateBusLocation = (0, database_1.onValueWritten)({
             lastDerivedAt: Date.now(),
             note: "No active contributors.",
         });
-        try {
-            const firestore = admin.firestore();
-            await firestore.collection("live_buses").doc(busId).set({
-                estimated: true,
-                updatedAt: Date.now(),
-                activePingers: 0
-            }, { merge: true });
-        }
-        catch (e) { }
         return;
     }
     const raw = snap.val();
@@ -118,15 +110,6 @@ exports.aggregateBusLocation = (0, database_1.onValueWritten)({
             note: "All candidates are stale or were rejected as outliers.",
         };
         await db.ref(`busHealth/${busId}`).set(health);
-        try {
-            const firestore = admin.firestore();
-            await firestore.collection("live_buses").doc(busId).set({
-                estimated: true,
-                updatedAt: now,
-                activePingers: 0
-            }, { merge: true });
-        }
-        catch (e) { }
         return;
     }
     // 6. EMA smoothing — blends new reading with previous smoothed position
@@ -160,22 +143,6 @@ exports.aggregateBusLocation = (0, database_1.onValueWritten)({
         [`busHealth/${busId}`]: health,
         [`busesByGeohash/${gh5}/${busId}`]: now,
     });
-    // 8b. Synchronize with Firestore live_buses for web clients
-    try {
-        const firestore = admin.firestore();
-        await firestore.collection("live_buses").doc(busId).set({
-            lat: derived.lat,
-            lng: derived.lng,
-            speed: derived.speed ?? null,
-            heading: derived.heading ?? null,
-            activePingers: derived.sourceCount ?? 1,
-            estimated: false,
-            updatedAt: now
-        }, { merge: true });
-    }
-    catch (e) {
-        console.error(`Failed to sync bus ${busId} to firestore:`, e);
-    }
     // 9. Snap-to-roads (Phase 2.2) — fire-and-forget, throttled to 5 s.
     //    Persists snapped path to busPaths/{busId} for the route-line overlay.
     (0, snap_to_roads_1.pushCentroid)(busId, derived.lat, derived.lng);

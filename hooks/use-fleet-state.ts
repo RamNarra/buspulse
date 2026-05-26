@@ -1,9 +1,9 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-import { getFirestore, onSnapshot, collection, doc } from "firebase/firestore";
+import { useEffect, useState } from "react";
 import { getFirebaseClientApp } from "@/lib/firebase/client";
-import { haversineMeters } from "@/lib/utils/geo";
+import { getRealtimeDb, subscribeToBusLocation } from "@/lib/firebase/realtime";
+import { ref, onValue } from "firebase/database";
 
 export type FleetBus = {
   routeNumber: string;
@@ -24,19 +24,6 @@ const DEAD_RECKON_AFTER_MS = 15_000;
 /** Stop extrapolating after this long without any live signal. */
 const DEAD_RECKON_MAX_MS = 120_000;
 
-/** Dead-reckoning tick interval in ms */
-const DEAD_RECKON_TICK_MS = 2_000;
-
-type BusPhysics = {
-  lat: number;
-  lng: number;
-  /** Degrees per millisecond */
-  dlat_per_ms: number;
-  dlng_per_ms: number;
-  updatedAt: number;
-  activePingers: number;
-  routeNumber: string;
-};
 
 /**
  * Phase 1.2: Subscribes to server-aggregated `busLocations/` (written by the
@@ -48,33 +35,24 @@ type BusPhysics = {
 export function useFleetState(scopeBusId?: string | null) {
   const [fleet, setFleet] = useState<FleetBus[]>([]);
 
-  const physicsRef = useRef<Record<string, BusPhysics>>({});
-  const tickRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
 
   useEffect(() => {
     const app = getFirebaseClientApp();
     if (!app) return;
-    const db = getFirestore(app);
 
-    // Read directly from the highly constrained live_buses Firestore collection.
-    // Ensure frontend is always synchronized with backend state perfectly without interpolation loops
-    let unsubscribe: () => void;
+    let unsubscribe: () => void = () => {};
 
     if (scopeBusId) {
-      const docRef = doc(db, "live_buses", scopeBusId);
-      unsubscribe = onSnapshot(docRef, (docSnap) => {
-        if (!docSnap.exists()) {
+      const unsub = subscribeToBusLocation(scopeBusId, (loc) => {
+        if (!loc) {
           setFleet([]);
           return;
         }
         
-        const loc = docSnap.data();
-        if (typeof loc.lat !== "number" || typeof loc.lng !== "number") return;
-        
         const now = Date.now();
         const age = now - (loc.updatedAt || now);
         
-        // Don't render extremely stale markers (offline)
         if (age > DEAD_RECKON_MAX_MS) {
           setFleet([]);
           return;
@@ -84,41 +62,49 @@ export function useFleetState(scopeBusId?: string | null) {
           routeNumber: scopeBusId,
           lat: loc.lat,
           lng: loc.lng,
-          activePingers: loc.activePingers ?? 1,
+          activePingers: loc.sourceCount ?? 1,
           updatedAt: loc.updatedAt ?? now,
           estimated: age > DEAD_RECKON_AFTER_MS
         }]);
       });
+      
+      if (unsub) unsubscribe = unsub;
     } else {
-       const colRef = collection(db, "live_buses");
-       unsubscribe = onSnapshot(colRef, (colSnap) => {
-         if (colSnap.empty) {
-           setFleet([]);
-           return;
-         }
-         
-         const liveFleet: FleetBus[] = [];
-         const now = Date.now();
-         
-         colSnap.forEach((docSnap) => {
-           const loc = docSnap.data();
-           if (typeof loc.lat !== "number" || typeof loc.lng !== "number") return;
-           
-           const age = now - (loc.updatedAt || now);
-           if (age > DEAD_RECKON_MAX_MS) return;
-           
-           liveFleet.push({
-             routeNumber: docSnap.id,
-             lat: loc.lat,
-             lng: loc.lng,
-             activePingers: loc.activePingers ?? 1,
-             updatedAt: loc.updatedAt ?? now,
-             estimated: age > DEAD_RECKON_AFTER_MS
-           });
-         });
-         
-         setFleet(liveFleet);
-       });
+      const rtdb = getRealtimeDb();
+      if (!rtdb) return;
+      const locationsRef = ref(rtdb, "busLocations");
+      
+      const unsub = onValue(locationsRef, (snapshot) => {
+        if (!snapshot.exists()) {
+          setFleet([]);
+          return;
+        }
+        
+        const data = snapshot.val() as Record<string, unknown>;
+        const liveFleet: FleetBus[] = [];
+        const now = Date.now();
+        
+        for (const busId in data) {
+          const loc = data[busId] as { lat?: number; lng?: number; updatedAt?: number; sourceCount?: number } | null;
+          if (!loc || typeof loc.lat !== "number" || typeof loc.lng !== "number") continue;
+          
+          const age = now - (loc.updatedAt || now);
+          if (age > DEAD_RECKON_MAX_MS) continue;
+          
+          liveFleet.push({
+            routeNumber: busId,
+            lat: loc.lat,
+            lng: loc.lng,
+            activePingers: loc.sourceCount ?? 1,
+            updatedAt: loc.updatedAt ?? now,
+            estimated: age > DEAD_RECKON_AFTER_MS
+          });
+        }
+        
+        setFleet(liveFleet);
+      });
+      
+      unsubscribe = unsub;
     }
 
     return () => {

@@ -112,17 +112,6 @@ export async function POST(req: NextRequest) {
 
   try {
     await adminDb.ref(`trackerCandidates/${busId}/${candidateId}`).set(candidate);
-    
-    // Write directly to firestore so frontend Map has access to immediate real-time live positions via snapshot
-    await adminFirestore.collection("live_buses").doc(busId).set({
-      lat,
-      lng,
-      speed: speed ?? null,
-      heading: heading ?? null,
-      activePingers: 1,
-      estimated: false,
-      updatedAt: ts
-    }, { merge: true });
 
     return NextResponse.json({ ok: true, candidateId });
   } catch (err) {

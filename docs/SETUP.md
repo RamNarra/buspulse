@@ -57,6 +57,13 @@ These are prepared in repo but not required right now:
 - Deploy rules: `npm run firebase:rules:deploy`
 - Deploy indexes: `npm run firebase:indexes:deploy`
 
+## 7.1 Cloud Functions Region (Important)
+Realtime Database triggers are easiest when your Cloud Functions are deployed in the **same region** as your Realtime Database instance.
+
+- This repo defaults the Functions region to `asia-southeast1`.
+- To override it for your project, set `BUSPULSE_FUNCTION_REGION` in your shell **before** deploying Functions:
+   - Example: `export BUSPULSE_FUNCTION_REGION=us-central1 && firebase deploy --only functions`
+
 ## 8. Known External Blockers
 These cannot be completed by code scaffolding alone:
 - OAuth consent screen/domain verification
@@ -79,5 +86,7 @@ App Check rejects unsigned clients before any Realtime Database or Cloud Functio
 3. Copy the site key to `NEXT_PUBLIC_RECAPTCHA_ENTERPRISE_SITE_KEY` in `.env.local`.
 4. **Firebase Console → App Check → APIs**: enable enforcement for *Realtime Database* and *Cloud Functions*.
 5. **Local dev**: leave `NEXT_PUBLIC_RECAPTCHA_ENTERPRISE_SITE_KEY` blank.
-   The client automatically sets `FIREBASE_APPCHECK_DEBUG_TOKEN = true` when `NODE_ENV !== production`, so the emulator suite and local dev server work without a real key.
+   The client sets `FIREBASE_APPCHECK_DEBUG_TOKEN = true` when `NODE_ENV !== production`.
+   - If **App Check enforcement is ON** for Realtime Database / Functions, you still must **register the generated debug token** in Firebase Console → App Check → your app → Manage debug tokens.
+   - If you don’t want to manage debug tokens in dev, use the **Firebase emulators** (`npm run firebase:emulators`).
 6. **Debug token for CI/CD**: generate a debug token in Firebase Console → App Check → your app → *Manage debug tokens*, then set `FIREBASE_APPCHECK_DEBUG_TOKEN=<token>` in your CI environment.
