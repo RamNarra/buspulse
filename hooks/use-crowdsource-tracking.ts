@@ -6,7 +6,6 @@ import {
   onDisconnect,
   onValue,
   ref,
-  runTransaction,
   set,
   remove,
   update,
@@ -15,6 +14,8 @@ import { getFirebaseClientApp, getFirebaseClientError } from "@/lib/firebase/cli
 import { useAuthContext } from "@/components/auth/auth-provider";
 import { useCurrentStudentProfile } from "@/hooks/use-current-student-profile";
 import { haversineMeters } from "@/lib/utils/geo";
+import { useWakeLock } from "@/hooks/use-wake-lock";
+import { useLeaderElection } from "@/hooks/use-leader-election";
 
 declare global {
   interface Window {
@@ -120,8 +121,36 @@ export function useCrowdsourceTracking(busStops: BusStop[] = EMPTY_STOPS) {
   const { student } = useCurrentStudentProfile(user);
 
   const [trackingState, setTrackingState] = useState<TrackingState>("IDLE");
-  const [isLeader, setIsLeader] = useState(false);
   const [peerCount, setPeerCount] = useState(0);
+
+  // Ephemeral UUID for pseudo-anonymous tracking
+  const opaqueIdRef = useRef<string | null>(null);
+  if (typeof window !== "undefined" && !opaqueIdRef.current) {
+    opaqueIdRef.current = crypto.randomUUID();
+  }
+
+  const app = getFirebaseClientApp();
+  const db = app ? getDatabase(app) : null;
+
+  const { acquireWakeLock, releaseWakeLock } = useWakeLock();
+  const { isLeader, isLeaderRef, tryClaimLeadership, yieldLeadership } = useLeaderElection(
+    db,
+    student?.busId ?? null,
+    opaqueIdRef.current,
+    trackingState === "BOARDED"
+  );
+
+  // Synchronize screen wake lock with leadership state
+  useEffect(() => {
+    if (isLeader && trackingState === "BOARDED") {
+      void acquireWakeLock();
+    } else {
+      void releaseWakeLock();
+    }
+    return () => {
+      void releaseWakeLock();
+    };
+  }, [isLeader, trackingState, acquireWakeLock, releaseWakeLock]);
 
   // ── Refs (stable across renders, safe inside callbacks) ────────────────────
   const busLocationRef = useRef<{ lat: number; lng: number; ts: number } | null>(null);
@@ -130,10 +159,6 @@ export function useCrowdsourceTracking(busStops: BusStop[] = EMPTY_STOPS) {
   const lastBoardedAtRef = useRef<number | null>(null);
   const nearStopSinceRef = useRef<number | null>(null);
   const trackingStateRef = useRef<TrackingState>("IDLE");
-  const isLeaderRef = useRef(false);
-  const wakeLockRef = useRef<WakeLockSentinel | null>(null);
-  const lastLeadershipRenewRef = useRef<number>(0);
-  const currentLeaderRef = useRef<{ uid?: string; ts?: number } | null>(null);
 
   /**
    * Last raw GPS fix — used to derive speed from position deltas when
@@ -149,26 +174,6 @@ export function useCrowdsourceTracking(busStops: BusStop[] = EMPTY_STOPS) {
     lng: number;
     heading: number;
   } | null>(null);
-
-  // Ephemeral UUID for pseudo-anonymous tracking
-  const opaqueIdRef = useRef<string | null>(null);
-
-  // ── Wake Lock helpers ──────────────────────────────────────────────────────
-  async function acquireWakeLock() {
-    if (typeof navigator === "undefined" || !("wakeLock" in navigator)) return;
-    try {
-      wakeLockRef.current = await navigator.wakeLock.request("screen");
-    } catch {
-      // Permission denied or unsupported — silent
-    }
-  }
-
-  async function releaseWakeLock() {
-    if (wakeLockRef.current) {
-      try { await wakeLockRef.current.release(); } catch { /* silent */ }
-      wakeLockRef.current = null;
-    }
-  }
 
   useEffect(() => {
     if (!user) return;
@@ -208,7 +213,6 @@ export function useCrowdsourceTracking(busStops: BusStop[] = EMPTY_STOPS) {
     const mappingRef = ref(db, `trackerMappings/${opaqueId}`);
     const waitingRef = ref(db, `approachingStudents/${busId}/${opaqueId}`);
     const boardedRef = ref(db, `trackerCandidates/${busId}/${opaqueId}`);
-    const leaderRef = ref(db, `trackerAssignments/${busId}/leader`);
     const candidatesRef = ref(db, `trackerCandidates/${busId}`);
     const othersWaitingRef = ref(db, `approachingStudents/${busId}`);
 
@@ -220,7 +224,6 @@ export function useCrowdsourceTracking(busStops: BusStop[] = EMPTY_STOPS) {
     // Cleanup handles for subscriptions and GPS watcher — populated after setup.
     let unsubCandidates: (() => void) | null = null;
     let unsubOthersWaiting: (() => void) | null = null;
-    let unsubLeader: (() => void) | null = null;
     let watchId: number | null = null;
     let onVisibilityChangeHandler: (() => void) | null = null;
     let isCancelled = false; // set to true if the effect cleanup runs before setup finishes
@@ -302,62 +305,7 @@ export function useCrowdsourceTracking(busStops: BusStop[] = EMPTY_STOPS) {
       syncPeers(lastBoarded, lastWaiting);
     });
 
-    // ── 2. Leader watcher ──────────────────────────────────────────────
-    unsubLeader = onValue(leaderRef, (snapshot) => {
-      const current = snapshot.val() as { uid?: string; ts?: number } | null;
-      currentLeaderRef.current = current;
-      const amLeader = current?.uid === opaqueId;
-      isLeaderRef.current = amLeader;
-      setIsLeader(amLeader);
 
-      if (amLeader && trackingStateRef.current === "BOARDED") {
-        void acquireWakeLock();
-      } else {
-        void releaseWakeLock();
-      }
-    });
-
-    // ── 3. Leadership claim / renewal ───────────────────────────────────────
-    async function tryClaimLeadership(visible: boolean) {
-      if (trackingStateRef.current !== "BOARDED") return;
-      if (!visible) return; // Don't claim if hidden — let a visible peer take over
-
-      const now = Date.now();
-      const current = currentLeaderRef.current;
-      const isAlreadyLeader = current?.uid === opaqueId;
-      const isStale = !current?.uid || !current?.ts || (now - current.ts > STALE_PING_MS);
-
-      // Only attempt a transaction if we genuinely believe we need to claim or renew
-      // Renew every 10 seconds if we are the leader
-      if (isAlreadyLeader && (now - lastLeadershipRenewRef.current < 10_000)) {
-        return;
-      }
-      
-      // If we are NOT the leader, only try to claim if the current one appears stale
-      if (!isAlreadyLeader && !isStale) {
-        return;
-      }
-
-      // Mark the attempt time so we don't spam transactions
-      lastLeadershipRenewRef.current = now;
-
-      await runTransaction(leaderRef, (currentTx: { uid?: string; ts?: number } | null) => {
-        const txNow = Date.now();
-        if (!currentTx?.uid || !currentTx?.ts || txNow - currentTx.ts > STALE_PING_MS) {
-          return { uid: opaqueId, ts: txNow }; // Claim — seat is empty or stale
-        }
-        if (currentTx.uid === opaqueId) {
-          return { uid: opaqueId, ts: txNow }; // Renew own lease
-        }
-        return currentTx; // Another active leader — stand by
-      });
-    }
-
-    async function yieldLeadership() {
-      await runTransaction(leaderRef, (current: { uid?: string } | null) => {
-        return current?.uid === opaqueId ? null : current;
-      });
-    }
 
     // ── 4. Visibility-based leader handoff ──────────────────────────────────
     onVisibilityChangeHandler = function onVisibilityChange() {
@@ -550,12 +498,19 @@ export function useCrowdsourceTracking(busStops: BusStop[] = EMPTY_STOPS) {
       }
       unsubCandidates?.();
       unsubOthersWaiting?.();
-      unsubLeader?.();
       void remove(waitingRef);
       void remove(boardedRef);
       void remove(mappingRef);
     };
-  }, [user, student, busStops]);
+  }, [
+    user,
+    student,
+    busStops,
+    isLeaderRef,
+    releaseWakeLock,
+    tryClaimLeadership,
+    yieldLeadership,
+  ]);
 
   return { trackingState, isLeader, peerCount, manualOverride, setManualOverride };
 }

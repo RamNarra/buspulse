@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { adminAuth, adminFirestore } from "@/lib/firebase/admin";
 import studentsDataRaw from "@/lib/data/students.json";
+import { getAllowedCollegeDomains } from "@/lib/config/env";
 
 const studentsData = studentsDataRaw as Record<string, string>;
 
@@ -73,9 +74,13 @@ export async function POST(req: NextRequest) {
 
         let studentData;
         if (studentSnap.empty) {
-          // Fallback to students.json lookup
+          // Fallback to students.json lookup - verify email domain first
+          const allowedDomains = getAllowedCollegeDomains();
+          const domain = email.split("@")[1]?.toLowerCase() ?? "";
+          const isAllowedDomain = allowedDomains.includes(domain);
+
           const rollNoMatch = email.split("@")[0].toLowerCase();
-          const routeId = studentsData[rollNoMatch];
+          const routeId = isAllowedDomain ? studentsData[rollNoMatch] : undefined;
 
           if (routeId) {
             studentData = {

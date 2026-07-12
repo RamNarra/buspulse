@@ -14,7 +14,6 @@ export type MapBounds = {
   west: number;
 };
 
-/** How long to dead-reckon after the last live fix (ms) */
 const DEAD_RECKON_MAX_MS = 120_000;
 const DEAD_RECKON_TICK_MS = 2_000;
 
@@ -27,33 +26,17 @@ type BusPhysics = {
   activePingers: number;
 };
 
-/**
- * Phase 2.1: Geohash-scoped fleet viewer.
- *
- * Instead of subscribing to the entire `busLocations/` tree, this hook:
- * 1. Encodes the map center into a geohash5 cell.
- * 2. Expands to the 9-cell neighbourhood (center + 8 neighbors ≈ ~15 km radius).
- * 3. Subscribes to `busesByGeohash/{cell}` for each cell → learns which busIds
- *    are in the area.
- * 4. Subscribes to `busLocations/{busId}` for each discovered bus.
- * 5. Unsubscribes from buses that leave all 9 cells.
- *
- * This is O(active_buses_in_viewport) rather than O(all_buses_in_college).
- *
- * Pass `bounds` as the current visible map extent. The hook recomputes cells
- * whenever the center hash changes (i.e., the user pans by ~5 km).
- */
 export function useFleetInViewport(bounds: MapBounds | null): { fleet: FleetBus[] } {
   const [fleet, setFleet] = useState<FleetBus[]>([]);
 
   const physicsRef = useRef<Record<string, BusPhysics>>({});
   const tickRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  // Track active RTDB subscriptions so we can unsubscribe when cells change
-  const cellUnsubsRef = useRef<Unsubscribe[]>([]);
+  // Active subscriptions
+  const cellUnsubsRef = useRef<Map<string, Unsubscribe>>(new Map());
+  const cellBusIdsRef = useRef<Map<string, Set<string>>>(new Map());
   const busUnsubsRef = useRef<Map<string, Unsubscribe>>(new Map());
   const busDataRef = useRef<Map<string, FleetBus>>(new Map());
-  const prevCellsRef = useRef<string>("");
 
   useEffect(() => {
     if (!bounds) return;
@@ -65,43 +48,50 @@ export function useFleetInViewport(bounds: MapBounds | null): { fleet: FleetBus[
     const centerLat = (bounds.north + bounds.south) / 2;
     const centerLng = (bounds.east + bounds.west) / 2;
     const centerHash = geohashEncode(centerLat, centerLng, 5);
-    const cells = geohash9(centerHash);
-    const cellsKey = [...cells].sort().join(",");
+    const targetCells = new Set(geohash9(centerHash));
 
-    // Only resubscribe if cells actually changed
-    if (cellsKey === prevCellsRef.current) return;
-    prevCellsRef.current = cellsKey;
+    const activeCellUnsubs = cellUnsubsRef.current;
+    const activeCellBusIds = cellBusIdsRef.current;
+    const activeBusUnsubs = busUnsubsRef.current;
+    const activeBusData = busDataRef.current;
 
-    // Tear down all previous subscriptions
-    for (const unsub of cellUnsubsRef.current) unsub();
-    cellUnsubsRef.current = [];
-
-    // Track which busIds are referenced by the current cells
-    const cellBusIds = new Map<string, Set<string>>(); // cell → set<busId>
+    // 1. Unsubscribe from cells that are no longer needed
+    for (const cell of activeCellUnsubs.keys()) {
+      if (!targetCells.has(cell)) {
+        activeCellUnsubs.get(cell)?.();
+        activeCellUnsubs.delete(cell);
+        activeCellBusIds.delete(cell);
+      }
+    }
 
     function rebuildFleet() {
       const allBusIds = new Set<string>();
-      for (const ids of cellBusIds.values()) {
-        for (const id of ids) allBusIds.add(id);
+      for (const ids of activeCellBusIds.values()) {
+        for (const id of ids) {
+          allBusIds.add(id);
+        }
       }
 
-      // Subscribe to busLocations for newly appeared buses
+      // Subscribe to newly discovered buses
       for (const busId of allBusIds) {
-        if (!busUnsubsRef.current.has(busId)) {
+        if (!activeBusUnsubs.has(busId)) {
           const unsub = onValue(ref(db, `busLocations/${busId}`), (snap) => {
             if (!snap.exists()) {
-              busDataRef.current.delete(busId);
+              activeBusData.delete(busId);
             } else {
               const loc = snap.val() as {
-                lat?: number; lng?: number; updatedAt?: number;
-                speed?: number; heading?: number; sourceCount?: number;
+                lat?: number;
+                lng?: number;
+                updatedAt?: number;
+                speed?: number;
+                heading?: number;
+                sourceCount?: number;
               };
               if (
                 typeof loc.lat === "number" &&
                 typeof loc.lng === "number" &&
                 typeof loc.updatedAt === "number"
               ) {
-                // Compute dead-reckoning velocity
                 const prev = physicsRef.current[busId];
                 let dLat = 0, dLng = 0;
                 if (prev && prev.updatedAt < loc.updatedAt) {
@@ -110,20 +100,27 @@ export function useFleetInViewport(bounds: MapBounds | null): { fleet: FleetBus[
                     const vLat = (loc.lat - prev.lat) / dt;
                     const vLng = (loc.lng - prev.lng) / dt;
                     const speedMs = haversineMeters(
-                      loc.lat, loc.lng,
-                      loc.lat + vLat * 1000, loc.lng + vLng * 1000,
+                      loc.lat,
+                      loc.lng,
+                      loc.lat + vLat * 1000,
+                      loc.lng + vLng * 1000,
                     );
-                    if (speedMs < 33.3) { dLat = vLat; dLng = vLng; }
+                    if (speedMs < 33.3) {
+                      dLat = vLat;
+                      dLng = vLng;
+                    }
                   }
                 }
                 physicsRef.current[busId] = {
-                  lat: loc.lat, lng: loc.lng,
-                  dlat_per_ms: dLat, dlng_per_ms: dLng,
+                  lat: loc.lat,
+                  lng: loc.lng,
+                  dlat_per_ms: dLat,
+                  dlng_per_ms: dLng,
                   updatedAt: loc.updatedAt,
                   activePingers: loc.sourceCount ?? 1,
                 };
 
-                busDataRef.current.set(busId, {
+                activeBusData.set(busId, {
                   routeNumber: busId,
                   lat: loc.lat,
                   lng: loc.lng,
@@ -133,37 +130,41 @@ export function useFleetInViewport(bounds: MapBounds | null): { fleet: FleetBus[
                 });
               }
             }
-            setFleet(Array.from(busDataRef.current.values()));
+            setFleet(Array.from(activeBusData.values()));
           });
-          busUnsubsRef.current.set(busId, unsub);
+          activeBusUnsubs.set(busId, unsub);
         }
       }
 
-      // Unsubscribe from buses that left all cells
-      for (const [busId, unsub] of busUnsubsRef.current) {
+      // Unsubscribe from buses that are no longer in any active cell
+      for (const [busId, unsub] of activeBusUnsubs) {
         if (!allBusIds.has(busId)) {
           unsub();
-          busUnsubsRef.current.delete(busId);
-          busDataRef.current.delete(busId);
+          activeBusUnsubs.delete(busId);
+          activeBusData.delete(busId);
           delete physicsRef.current[busId];
         }
       }
-      setFleet(Array.from(busDataRef.current.values()));
+      setFleet(Array.from(activeBusData.values()));
     }
 
-    // Subscribe to each geohash cell
-    for (const cell of cells) {
-      cellBusIds.set(cell, new Set());
-      const unsub = onValue(ref(db, `busesByGeohash/${cell}`), (snap) => {
-        const ids = new Set<string>();
-        if (snap.exists()) {
-          const data = snap.val() as Record<string, number>;
-          for (const busId in data) ids.add(busId);
-        }
-        cellBusIds.set(cell, ids);
-        rebuildFleet();
-      });
-      cellUnsubsRef.current.push(unsub);
+    // 2. Subscribe only to new cells
+    for (const cell of targetCells) {
+      if (!activeCellUnsubs.has(cell)) {
+        activeCellBusIds.set(cell, new Set());
+        const unsub = onValue(ref(db, `busesByGeohash/${cell}`), (snap) => {
+          const ids = new Set<string>();
+          if (snap.exists()) {
+            const data = snap.val() as Record<string, number>;
+            for (const busId in data) {
+              ids.add(busId);
+            }
+          }
+          activeCellBusIds.set(cell, ids);
+          rebuildFleet();
+        });
+        activeCellUnsubs.set(cell, unsub);
+      }
     }
 
     // Dead reckoning ticker
@@ -190,26 +191,30 @@ export function useFleetInViewport(bounds: MapBounds | null): { fleet: FleetBus[
       if (updates.length > 0) {
         setFleet((prev) => {
           const liveRoutes = new Set(prev.filter((b) => !b.estimated).map((b) => b.routeNumber));
-          return [...prev.filter((b) => !b.estimated), ...updates.filter((b) => !liveRoutes.has(b.routeNumber))];
+          return [
+            ...prev.filter((b) => !b.estimated),
+            ...updates.filter((b) => !liveRoutes.has(b.routeNumber)),
+          ];
         });
       }
     }, DEAD_RECKON_TICK_MS);
 
-    // Capture Map references in effect-body scope (not inside cleanup) to satisfy
-    // react-hooks/exhaustive-deps. These are the same Map objects — mutations
-    // made after capture are still visible since Maps are reference types.
-    const capturedBusUnsubs = busUnsubsRef.current;
-    const capturedBusData = busDataRef.current;
-
     return () => {
-      for (const unsub of cellUnsubsRef.current) unsub();
-      cellUnsubsRef.current = [];
-      for (const unsub of capturedBusUnsubs.values()) unsub();
-      capturedBusUnsubs.clear();
-      capturedBusData.clear();
       if (tickRef.current) clearInterval(tickRef.current);
     };
   }, [bounds]);
+
+  // Cleanup all listeners on unmount
+  useEffect(() => {
+    const activeCellUnsubs = cellUnsubsRef.current;
+    const activeBusUnsubs = busUnsubsRef.current;
+    return () => {
+      for (const unsub of activeCellUnsubs.values()) unsub();
+      activeCellUnsubs.clear();
+      for (const unsub of activeBusUnsubs.values()) unsub();
+      activeBusUnsubs.clear();
+    };
+  }, []);
 
   return { fleet };
 }

@@ -56,11 +56,16 @@ type PubSubEnvelope = {
 export async function POST(req: NextRequest) {
   // Validate push secret (simple bearer token guard)
   const expectedSecret = await getSecret(PUBSUB_PUSH_SECRET_NAME);
-  if (expectedSecret) {
-    const authHeader = req.headers.get("authorization");
-    if (authHeader !== `Bearer ${expectedSecret}`) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+  if (!expectedSecret) {
+    return NextResponse.json(
+      { error: "Pub/Sub authentication is not configured on the server." },
+      { status: 500 }
+    );
+  }
+
+  const authHeader = req.headers.get("authorization");
+  if (authHeader !== `Bearer ${expectedSecret}`) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
   let envelope: PubSubEnvelope;

@@ -1,7 +1,3 @@
-// ── Anomaly detection math (Phase 2.4) ───────────────────────────────────────
-// Pure functions — no I/O. Used by both the Cloud Function scheduler and any
-// future Server Action that needs to surface anomaly state.
-
 export type LatLng = { lat: number; lng: number };
 
 export type AnomalyStatus =
@@ -13,20 +9,17 @@ export type AnomalyStatus =
   | "ghost"
   | "offline";
 
-// ── Constants ─────────────────────────────────────────────────────────────────
 const DEVIATION_THRESHOLD_M = 250;
 const DEVIATION_CONFIRM_MS = 60_000;
 const STRANDED_SPEED_THRESHOLD_MS = 0.5; // m/s ≈ 1.8 km/h
 const STRANDED_THRESHOLD_MS = 10 * 60_000; // 10 min
 const GHOST_THRESHOLD_MS = 5 * 60_000; // 5 min
 
-// ── Geometry helpers ──────────────────────────────────────────────────────────
-
 function toRadians(deg: number): number {
   return (deg * Math.PI) / 180;
 }
 
-function haversineM(a: LatLng, b: LatLng): number {
+export function haversineM(a: LatLng, b: LatLng): number {
   const R = 6_371_000;
   const dLat = toRadians(b.lat - a.lat);
   const dLng = toRadians(b.lng - a.lng);
@@ -83,8 +76,6 @@ export function perpDistToPolyline(p: LatLng, polyline: LatLng[]): number {
   return minDist;
 }
 
-// ── Anomaly classifiers ───────────────────────────────────────────────────────
-
 /**
  * Ghost: no live contributor data for longer than GHOST_THRESHOLD_MS.
  */
@@ -122,19 +113,6 @@ export function isDeviated(
 
 /**
  * Classify a bus given its current live stats.
- *
- * Returns the most severe anomaly found, falling through to the base
- * signal-quality status (healthy / degraded / stale / offline) when no
- * spatial anomaly is detected.
- *
- * @param baseStatus         Signal-quality status from the aggregator
- * @param lastDerivedAt      Timestamp of last aggregator write
- * @param speedMs            Current smoothed speed (m/s)
- * @param distToRouteM       Perpendicular distance to nearest route segment (m)
- * @param stationarySinceMs  How long the bus has been near-stationary, or null
- * @param deviatedSinceMs    How long the bus has been off-route, or null
- * @param nearStop           Whether the bus is within bufferMeters of a stop
- * @param now                Current timestamp
  */
 export function classifyAnomaly(
   baseStatus: AnomalyStatus,

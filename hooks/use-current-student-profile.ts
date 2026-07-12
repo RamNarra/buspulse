@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 
 import { getDataSourceMode } from "@/lib/config/data-source";
 import { readStudentProfileByUid } from "@/lib/firebase/firestore";
+import { getAllowedCollegeDomains } from "@/lib/config/env";
 import { mockStudent } from "@/lib/mock/fixtures";
 import type { Student } from "@/types/models";
 import type { User } from "firebase/auth";
@@ -48,14 +49,16 @@ export function useCurrentStudentProfile(user: User | null | undefined) {
       }
 
       if (!result.ok || !result.student) {
-        // Fallback: infer from students.json!
-        // Works for ANY email domain — @sreenidhi.edu.in, Gmail, etc.
-        // The lookup key is always the roll number, which is the part before @.
+        // Fallback: infer from students.json! Verify domain first.
         let resolvedRouteId: string | undefined = undefined;
+        const allowedDomains = getAllowedCollegeDomains();
+        const domain = email?.split("@")[1]?.toLowerCase() ?? "";
+        const isAllowedDomain = allowedDomains.includes(domain);
+
         const rollNoMatch = email?.split('@')[0].toLowerCase() ?? "";
         let inferredFullName = rollNoMatch || "Student";
 
-        if (rollNoMatch && studentsData[rollNoMatch]) {
+        if (isAllowedDomain && rollNoMatch && studentsData[rollNoMatch]) {
           resolvedRouteId = studentsData[rollNoMatch];
           inferredFullName = `Student (${rollNoMatch.toUpperCase()})`;
         }

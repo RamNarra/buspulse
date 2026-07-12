@@ -1,36 +1,59 @@
-import type { BusLocation, TrackerCandidate } from "@/types/models";
+export type TrackerCandidateLike = {
+  submittedAt?: number | null;
+  accuracy?: number | null;
+  speed?: number | null;
+  routeMatchScore: number;
+  lat: number;
+  lng: number;
+  heading?: number | null;
+  updatedAt?: number;
+};
+
+export type BusLocationLike = {
+  lat: number;
+  lng: number;
+  heading: number;
+  speed: number;
+  accuracy: number;
+  updatedAt: number;
+  confidence: number;
+  sourceCount: number;
+  routeMatchScore: number;
+};
 
 const FRESH_WINDOW_MS = 30_000;
 const STALE_WINDOW_MS = 90_000;
 
 export function isCandidateStale(
-  candidate: TrackerCandidate,
+  candidate: TrackerCandidateLike,
   now = Date.now(),
 ): boolean {
-  return now - candidate.submittedAt > STALE_WINDOW_MS;
+  const ts = candidate.submittedAt || candidate.updatedAt || now;
+  return now - ts > STALE_WINDOW_MS;
 }
 
 export function scoreCandidate(
-  candidate: TrackerCandidate,
+  candidate: TrackerCandidateLike,
   now = Date.now(),
 ): number {
-  const ageMs = now - candidate.submittedAt;
+  const ts = candidate.submittedAt || candidate.updatedAt || now;
+  const ageMs = now - ts;
   const freshnessScore = Math.max(0, 1 - ageMs / FRESH_WINDOW_MS);
-  const accuracyScore = Math.max(0, 1 - candidate.accuracy / 100);
+  const accuracyScore = Math.max(0, 1 - (candidate.accuracy || 10) / 100);
   const speedScore = candidate.speed ? Math.min(candidate.speed / 14, 1) : 0.4;
 
   return (
     freshnessScore * 0.45 +
     accuracyScore * 0.3 +
-    candidate.routeMatchScore * 0.2 +
+    (candidate.routeMatchScore || 1) * 0.2 +
     speedScore * 0.05
   );
 }
 
 export function deriveLocationFromCandidates(
-  candidates: TrackerCandidate[],
+  candidates: TrackerCandidateLike[],
   now = Date.now(),
-): BusLocation | null {
+): BusLocationLike | null {
   const eligible = candidates
     .filter((candidate) => !isCandidateStale(candidate, now))
     .map((candidate) => ({
@@ -51,8 +74,8 @@ export function deriveLocationFromCandidates(
       const weight = item.score / total;
       acc.lat += item.candidate.lat * weight;
       acc.lng += item.candidate.lng * weight;
-      acc.accuracy += item.candidate.accuracy * weight;
-      acc.routeMatchScore += item.candidate.routeMatchScore * weight;
+      acc.accuracy += (item.candidate.accuracy || 10) * weight;
+      acc.routeMatchScore += (item.candidate.routeMatchScore || 1) * weight;
       acc.speed += (item.candidate.speed ?? 0) * weight;
       acc.heading += (item.candidate.heading ?? 0) * weight;
       return acc;

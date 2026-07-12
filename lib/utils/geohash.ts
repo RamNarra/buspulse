@@ -1,6 +1,3 @@
-// Pure TypeScript geohash implementation — no external dependencies.
-// Precision 5 → ~±2.4 km cells (good for per-district fleet scoping).
-
 const BASE32 = "0123456789bcdefghjkmnpqrstuvwxyz";
 
 /**
@@ -90,8 +87,7 @@ export function geohashDecode(hash: string): {
 
 /**
  * Returns the center cell plus all 8 surrounding neighbor cells (9 total,
- * deduplicated). Use this for viewport queries — subscribing to these 9
- * cells covers any bus within ~one cell radius of a given location.
+ * deduplicated).
  */
 export function geohash9(hash: string): string[] {
   const { lat, lng, latErr, lngErr } = geohashDecode(hash);

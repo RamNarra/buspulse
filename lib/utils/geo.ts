@@ -49,6 +49,11 @@ export function isLocationOutlier(
   if (dtSeconds <= 0) return false; // same timestamp — allow
 
   const distMeters = haversineMeters(prevLat, prevLng, newLat, newLng);
-  const impliedSpeed = distMeters / dtSeconds;
-  return impliedSpeed > maxSpeedMs;
+
+  // Natural GPS drift tolerance: never reject points under 40 meters,
+  // regardless of how "fast" the time delta makes it seem.
+  if (distMeters <= 40) return false;
+
+  // Add 10 seconds of "grace time" so consecutive pings from different phones don't artificially spike speed calculation
+  return distMeters / (dtSeconds + 10) > maxSpeedMs;
 }

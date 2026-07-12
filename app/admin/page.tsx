@@ -1,6 +1,6 @@
-﻿"use client";
+"use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   ShieldCheck,
@@ -13,6 +13,7 @@ import {
   Ticket,
   Copy,
   Check,
+  Loader2,
 } from "lucide-react";
 import { getAuth } from "firebase/auth";
 
@@ -178,8 +179,45 @@ function AlertsPanel({ alerts }: { alerts: FleetBusWithHealth[] }) {
 
 export default function AdminPage() {
   const router = useRouter();
-  const { signOut } = useAuthSession();
+  const { mode, user, isLoading: authLoading, signOut } = useAuthSession();
   const [activeTab, setActiveTab] = useState("overview");
+  const [isAdmin, setIsAdmin] = useState(mode === "mock");
+  const [now, setNow] = useState<number | null>(null);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setNow(Date.now());
+    }, 0);
+    const interval = setInterval(() => setNow(Date.now()), 5000);
+    return () => {
+      clearTimeout(timer);
+      clearInterval(interval);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (mode === "mock") {
+      return;
+    }
+
+    if (!authLoading) {
+      if (!user) {
+        router.replace("/login");
+      } else {
+        user.getIdTokenResult()
+          .then((tokenResult) => {
+            if (tokenResult.claims.role === "admin") {
+              setIsAdmin(true);
+            } else {
+              router.replace("/dashboard");
+            }
+          })
+          .catch(() => {
+            router.replace("/dashboard");
+          });
+      }
+    }
+  }, [user, authLoading, mode, router]);
 
   const { fleet, alerts } = useFleetWithHealth();
   const activeBuses = fleet.length;
@@ -187,6 +225,19 @@ export default function AdminPage() {
   const healthyBuses = fleet.filter((b) => b.status === "healthy").length;
   const systemHealth =
     activeBuses === 0 ? "N/A" : `${Math.round((healthyBuses / activeBuses) * 100)}%`;
+
+  if ((mode === "live" && authLoading) || !isAdmin) {
+    return (
+      <div className="min-h-[100dvh] grid place-items-center bg-[#020617]">
+        <div className="flex flex-col items-center gap-3">
+          <Loader2 className="w-8 h-8 animate-spin text-blue-500" />
+          <span className="text-sm font-mono text-slate-300 uppercase tracking-widest animate-pulse">
+            Verifying Admin Access...
+          </span>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-[100dvh] bg-slate-50 flex flex-col md:flex-row">
@@ -313,8 +364,7 @@ export default function AdminPage() {
                   </thead>
                   <tbody className="divide-y divide-slate-100">
                     {fleet.map((bus) => {
-                      // eslint-disable-next-line react-hooks/purity
-                      const ageS = Math.round((Date.now() - bus.updatedAt) / 1000);
+                      const ageS = now ? Math.round((now - bus.updatedAt) / 1000) : null;
                       return (
                         <tr key={bus.routeNumber} className="hover:bg-slate-50/80 transition-colors">
                           <td className="px-6 py-4 font-semibold text-slate-900">{bus.routeNumber}</td>
@@ -332,7 +382,9 @@ export default function AdminPage() {
                               {bus.estimated ? "Estimated" : "Live"}
                             </span>
                           </td>
-                          <td className="px-6 py-4 text-slate-500">{ageS}s ago</td>
+                          <td className="px-6 py-4 text-slate-500">
+                            {ageS !== null ? `${ageS}s ago` : "updating..."}
+                          </td>
                         </tr>
                       );
                     })}

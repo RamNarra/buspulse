@@ -58,7 +58,7 @@ export function LoginForm() {
             
             {/* Monospace System Header */}
             <div className="font-mono text-[10px] tracking-[0.25em] text-indigo-400 font-bold mb-6 uppercase">
-              // TRANSIT_NETWORK_AUTHENTICATION
+              {"// TRANSIT_NETWORK_AUTHENTICATION"}
             </div>
 
             {/* Glowing System Icon */}

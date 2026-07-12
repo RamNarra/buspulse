@@ -39,7 +39,21 @@ export async function GET(
 
   const idToken = authHeader.substring(7);
   try {
-    await adminAuth.verifyIdToken(idToken);
+    const decodedToken = await adminAuth.verifyIdToken(idToken);
+    
+    // Enforcement of BOLA/IDOR check
+    const role = decodedToken.role;
+    const assignedBusId = decodedToken.assignedBusId;
+    const tier = decodedToken.tier;
+    
+    if (role !== "admin") {
+      if (tier !== "god" && assignedBusId !== busId) {
+        return NextResponse.json(
+          { error: "Access denied: you are not authorized to view this route." },
+          { status: 403 }
+        );
+      }
+    }
   } catch {
     return NextResponse.json({ error: "Invalid credentials" }, { status: 401 });
   }
