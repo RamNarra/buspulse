@@ -1,81 +1,82 @@
-# BusPulse: AI-Native Decentralized Transit Intelligence
+# 🌌 BusPulse // AI-Native Decentralized Transit Intelligence
+> **"Drivers have no devices. Students are the network. The fleet is autonomous."**
 
-BusPulse is a decentralized transit mapping and telemetry engine built for municipal and college transit networks where vehicles lack dedicated GPS hardware. By using commuter devices as active network sensors, BusPulse aggregates real-time bus locations, predicts stop-level ETAs, and runs AI-native delay explainability.
+BusPulse is an intelligent, decentralized transit mapping and telemetry engine designed for college and municipal fleets operating without dedicated GPS hardware. By transforming commuter smartphones into active mesh telemetry nodes, BusPulse orchestrates real-time tracking, stop-level ETA predictions, and AI-native delay explanation with zero specialized physical tracking infrastructure.
 
-**Production Deployment:** [buspulse-livid.vercel.app](https://buspulse-livid.vercel.app)  
-**Firebase Target Project:** `buspulse-493407`
-
----
-
-## ⚡ Architectural Core
-
-### 1. The Proximity Matchmaking & State Merge
-BusPulse implements a bidirectional location sharing grid between two states:
-* **WAITING State:** Commuters awaiting a bus grant location access. They are pushed to the Realtime Database under `approachingStudents` and receive live bus ETAs.
-* **BOARDED State:** When a waiting user's coordinates intersect with the derived bus centroid (matching heading and velocity vectors), the system dynamically auto-merges them into the `BOARDED` state.
-* **Consensus GPS (Tracker Pool):** To minimize passenger battery drain, the system elects **exactly one** boarded client as the primary leader to stream high-fidelity GPS to the cloud. All other boarded devices shift into standby. If the leader drops, a new leader is promoted instantly.
-
-### 2. AI-Native Telemetry Explainability
-* **Delay Summarization:** Commuters can request a real-time explanation for delay parameters. The Next.js API `/api/explain/[busId]` reads current bus speed, telemetry confidence, and active contributors, and utilizes **Gemini 1.5 Flash** via Vertex AI to return a concise, natural-language explanation.
-* **API Resilience:** Includes a local high-fidelity heuristic fallback engine to guarantee SLA-grade descriptions during model timeouts or API quota caps.
-
-### 3. Google Maps Integration
-* **Map-Matching:** Telemetry centroids are snapped in real-time to the street grid using **Google Maps Roads API**, eliminating visual jitter.
-* **Traffic-Aware ETA:** Stop-level ETAs utilize **Google Routes API v2** with `routingPreference: "TRAFFIC_AWARE_OPTIMAL"` and a 30-second Firestore cache key to keep GCP costs low.
+```
+                  [ WAITING STATE ]
+                         │  (Broadcasts coords & ETA request)
+                         ▼
+             ┌────────────────────────┐
+             │   PROXIMITY ENGINE     │ ◄─── Snap-to-Roads Map Matching
+             └───────────┬────────────┘
+                         │  (Heading + Velocity intersection check)
+                         ▼
+                  [ BOARDED STATE ]
+                         │
+                         ├─► Active Leader ──► High-fidelity RTDB ping
+                         └─► Standby Pool  ──► Low-power presence ping
+```
 
 ---
 
-## 🔒 Security & User Access Control
+## ⚡ Cybernetic Core Mechanics
 
-We enforce a strict **Custom Claims Policy** via our self-service authentication synchronization endpoint `/api/auth/sync`:
-* During Google Sign-In, the provider routes user credentials to `/api/auth/sync`.
-* The server validates the token, maps the user to their Firestore profile (or falls back to `students.json` whitelists), sets custom auth claims (`role`, `assignedBusId`, `tier`), and returns a verified token.
-* This locks writes on `trackerCandidates/$busId` and `trackerAssignments/$busId` strictly to authorized student occupants.
+### 🧬 Proximity Matchmaking & State Merge
+BusPulse handles live coordinate telemetry using a dynamic state engine:
+* **`WAITING` State:** Commuters awaiting arrival broadcast location slices. They are registered under `/approachingStudents` in the Realtime Database and subscribe to high-frequency ETA ticks.
+* **`BOARDED` State:** When a commuter's vector (heading + velocity) intersects with the derived bus centroid, they transition instantly to the `BOARDED` state.
+* **Tracker Pool & Leader Election:** To conserve commuter battery life, the system runs an active leader election. **Exactly one** boarded device is elected to stream high-fidelity GPS (`busLocations`). Remaining occupants switch to low-power standby. If the leader loses connection, the standby pool auto-promotes a successor in `< 500ms`.
+
+### 🧠 Vertex AI Delay Explainability
+* **Real-time Synthesis:** The API `/api/explain/[busId]` reads speed, telemetry confidence, traffic congestion metrics, and active tracking candidate counts, invoking **Gemini 3.5 Flash** on Vertex AI to construct descriptive, human-readable delay summaries.
+* **Fallback Guarantee:** A deterministic local heuristic parser intercepts network or quota timeouts to render fallback telemetry diagnostics instantly, guaranteeing 100% service uptime.
+
+### 🗺️ Dark Map Geometry
+* **Street Snapping:** Centroids are snapped to the street grid via Google Roads API to smooth out GPS jitter.
+* **Traffic-Aware ETAs:** Stop-level ETA predictions consume Google Routes API v2 with `TRAFFIC_AWARE_OPTIMAL` routing preference, utilizing a 30-second Firestore cache to eliminate GCP budget bleed.
 
 ---
 
-## 🚀 Quick Start
+## 🔒 Zero-Trust Custom Claims & RBAC
 
-### 1. Requirements & Install
-Ensure your local environment is authenticated with the `gcloud` and `firebase` CLIs.
+All writes on hot RTDB paths are secured using a custom claim mapping layer synced via `/api/auth/sync`:
+1. **Google Sign-In** forces redirect via `@sreenidhi.edu.in` accounts.
+2. **Server-side validation** maps the user profile against Firestore whitelists.
+3. **Custom claims** (`role`, `assignedBusId`, `tier`) are sealed on the JWT.
+4. **RTDB security rules** enforce that only users holding the active token claim can write coordinates to `trackerCandidates/$busId` or receive leader keys.
+
+---
+
+## 🛠️ Development & Launch Sequence
+
+### 📦 Setup & Config
+1. Clone & install dependencies:
+   ```bash
+   npm install
+   ```
+2. Populate `.env.local` using the parameters below:
+   ```env
+   NEXT_PUBLIC_APP_NAME=BusPulse
+   NEXT_PUBLIC_ALLOWED_COLLEGE_DOMAINS=sreenidhi.edu.in
+   
+   NEXT_PUBLIC_FIREBASE_API_KEY=AIzaSy...
+   NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN=buspulse-493407.firebaseapp.com
+   NEXT_PUBLIC_FIREBASE_PROJECT_ID=buspulse-493407
+   NEXT_PUBLIC_FIREBASE_DATABASE_URL=https://buspulse-493407-default-rtdb.asia-southeast1.firebasedatabase.app
+   NEXT_PUBLIC_GOOGLE_MAPS_API_KEY=AIzaSy...
+   ```
+
+### 🛰️ Local Operations
+* **Launch Dev Server:** `npm run dev`
+* **Deploy Database Rules:** `npm run firebase:rules:deploy`
+* **Deploy Indexes:** `npm run firebase:indexes:deploy`
+
+### 🧪 Validation Protocol
+Ensure all checks pass before pushing commits:
 ```bash
-npm install
+npm run lint       # Zero-warning ESLint check
+npm run typecheck  # Strict TS compiler validation
+npm run build      # Next.js production optimize pipeline
+npm run validate   # End-to-end local validation suite
 ```
-
-### 2. Configure Credentials
-Copy `.env.example` to `.env.local` and fill in your Firebase configuration parameters:
-```env
-NEXT_PUBLIC_APP_NAME=BusPulse
-NEXT_PUBLIC_ALLOWED_COLLEGE_DOMAINS=sreenidhi.edu.in
-
-NEXT_PUBLIC_FIREBASE_API_KEY=AIzaSy...
-NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN=buspulse-493407.firebaseapp.com
-NEXT_PUBLIC_FIREBASE_PROJECT_ID=buspulse-493407
-NEXT_PUBLIC_FIREBASE_DATABASE_URL=https://buspulse-493407-default-rtdb.asia-southeast1.firebasedatabase.app
-NEXT_PUBLIC_GOOGLE_MAPS_API_KEY=AIzaSy...
-```
-
-### 3. Run Development Server
-```bash
-npm run dev
-```
-
-### 4. Deploy Infrastructure
-```bash
-# Deploy Firestore & Realtime Database rules
-npm run firebase:rules:deploy
-
-# Deploy Firestore composite indexes
-npm run firebase:indexes:deploy
-```
-
----
-
-## 🛠️ Validation Pipeline
-
-Before submitting commits, verify code compilation, tests, and formatting:
-* `npm run typecheck` — Strict TypeScript compile verification.
-* `npm run lint` — ESLint static rules verification.
-* `npm run test` — Runs 40 Vitest unit tests over Scoring, Geo, and Anomaly engines.
-* `npm run build` — Validates optimized Next.js server-side compilation.
-* `npm run validate` — Runs full formatting, typechecking, and compilation pipelines.

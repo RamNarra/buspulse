@@ -1,404 +1,223 @@
-"use client";
+'use client';
 
-import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
+import { motion } from 'framer-motion';
+import { Bus, Users, Pulse, ChartBar } from '@phosphor-icons/react';
 import {
-  ShieldCheck,
-  Users,
-  Bus as BusIcon,
-  Map,
-  LogOut,
-  Activity,
-  AlertTriangle,
-  Ticket,
-  Copy,
-  Check,
-  Loader2,
-} from "lucide-react";
-import { getAuth } from "firebase/auth";
+  collection,
+  getFirestore,
+  onSnapshot,
+} from 'firebase/firestore';
 
-import { useAuthSession } from "@/hooks/use-auth-session";
-import { useFleetWithHealth, type FleetBusWithHealth } from "@/hooks/use-fleet-with-health";
-import { generateParentInvite } from "@/app/actions/parent";
-import type { BusHealthStatus } from "@/types/models";
+import { AppShell } from '@/components/nav/app-shell';
+import { StatusBadge } from '@/components/ui/badge';
+import { ConfidenceBar } from '@/components/ui/confidence-bar';
+import { Skeleton } from '@/components/ui/skeleton';
+import { useAuthContext } from '@/components/auth/auth-provider';
+import { useLiveBusState } from '@/hooks/use-live-bus-state';
+import { getFirebaseClientApp } from '@/lib/firebase/client';
+import type { Bus as BusModel } from '@/types/models';
 
-// --- helpers ---
+// ── Hook ─────────────────────────────────────────────────────────────────────
 
-function statusColor(status: BusHealthStatus) {
-  switch (status) {
-    case "healthy":  return "bg-green-100 text-green-700";
-    case "degraded": return "bg-yellow-100 text-yellow-800";
-    case "stale":    return "bg-orange-100 text-orange-800";
-    case "deviated": return "bg-purple-100 text-purple-800";
-    case "stranded": return "bg-red-100 text-red-800";
-    case "ghost":    return "bg-slate-100 text-slate-600";
-    case "offline":  return "bg-slate-200 text-slate-500";
-    default:         return "bg-slate-100 text-slate-600";
-  }
-}
+function useFleet(collegeId: string | undefined) {
+  const [buses, setBuses] = useState<BusModel[]>([]);
+  const [loading, setLoading] = useState(true);
 
-function statusDot(status: BusHealthStatus) {
-  switch (status) {
-    case "healthy":  return "bg-green-500";
-    case "degraded": return "bg-yellow-500";
-    case "stale":    return "bg-orange-500";
-    case "deviated": return "bg-purple-500";
-    case "stranded": return "bg-red-500";
-    case "ghost":    return "bg-slate-400";
-    case "offline":  return "bg-slate-400";
-    default:         return "bg-slate-400";
-  }
-}
-
-function fmtDuration(ms: number) {
-  const m = Math.floor(ms / 60_000);
-  const s = Math.floor((ms % 60_000) / 1000);
-  return m > 0 ? `${m}m ${s}s` : `${s}s`;
-}
-
-// --- InvitePanel ---
-
-function InvitePanel() {
-  const [studentId, setStudentId] = useState("");
-  const [rel, setRel] = useState<"mother" | "father" | "guardian" | "other">("guardian");
-  const [loading, setLoading] = useState(false);
-  const [result, setResult] = useState<{ code: string; expiresAt: number } | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [copied, setCopied] = useState(false);
-
-  const handleGenerate = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setLoading(true);
-    setError(null);
-    setResult(null);
-    try {
-      const auth = getAuth();
-      const user = auth.currentUser;
-      if (!user) { setError("Not authenticated."); setLoading(false); return; }
-      const idToken = await user.getIdToken();
-      const res = await generateParentInvite(studentId.trim(), rel, idToken);
-      if (!res.ok) setError(res.error);
-      else setResult({ code: res.code, expiresAt: res.expiresAt });
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Unknown error");
-    } finally {
+  useEffect(() => {
+    if (!collegeId) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setLoading(false);
+      return;
     }
-  };
+    const app = getFirebaseClientApp();
+    if (!app) {
+      setLoading(false);
+      return;
+    }
+    const db = getFirestore(app);
 
-  const copy = () => {
-    if (result) {
-      void navigator.clipboard.writeText(result.code);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    }
-  };
+    const unsub = onSnapshot(
+      collection(db, 'buses'),
+      (snap) => {
+        setBuses(snap.docs.map((d) => ({ id: d.id, ...d.data() } as BusModel)));
+        setLoading(false);
+      },
+      () => setLoading(false),
+    );
+    return unsub;
+  }, [collegeId]);
+
+  return { buses, loading };
+}
+
+// ── Bus Row ───────────────────────────────────────────────────────────────────
+
+function BusRow({ bus }: { bus: BusModel }) {
+  const liveState = useLiveBusState({ busId: bus.id });
 
   return (
-    <div className="bg-white border border-slate-200 rounded-2xl shadow-sm p-6 space-y-4">
-      <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
-        <Ticket className="w-4 h-4 text-blue-500" /> Generate Parent Invite
-      </h3>
-      <form onSubmit={handleGenerate} className="flex flex-col sm:flex-row gap-3">
-        <input
-          type="text"
-          required
-          placeholder="Student ID"
-          value={studentId}
-          onChange={(e) => setStudentId(e.target.value)}
-          className="flex-1 border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-        />
-        <select
-          value={rel}
-          onChange={(e) => setRel(e.target.value as typeof rel)}
-          className="border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-        >
-          <option value="mother">Mother</option>
-          <option value="father">Father</option>
-          <option value="guardian">Guardian</option>
-          <option value="other">Other</option>
-        </select>
-        <button
-          type="submit"
-          disabled={loading || !studentId}
-          className="px-4 py-2 rounded-xl bg-blue-600 text-white text-sm font-semibold hover:bg-blue-700 disabled:opacity-50 transition-colors"
-        >
-          {loading ? "Generating..." : "Generate"}
-        </button>
-      </form>
-      {error && <p className="text-sm text-red-600 font-medium">{error}</p>}
-      {result && (
-        <div className="flex items-center gap-3 bg-slate-50 border border-slate-200 rounded-xl px-4 py-3">
-          <span className="font-mono text-2xl font-bold tracking-[0.4em] text-slate-900">{result.code}</span>
-          <button onClick={copy} className="ml-auto text-slate-400 hover:text-slate-700 transition-colors">
-            {copied ? <Check className="w-4 h-4 text-green-600" /> : <Copy className="w-4 h-4" />}
-          </button>
-          <span className="text-xs text-slate-400 whitespace-nowrap">
-            Expires {new Date(result.expiresAt).toLocaleString()}
+    <motion.tr
+      layout
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      className="border-b border-[#1e1e28]"
+    >
+      <td className="px-4 py-3">
+        <div className="flex items-center gap-2">
+          <div
+            className="w-1.5 h-1.5 rounded-full"
+            style={{
+              backgroundColor: liveState.stale ? '#4a4a5e' : '#22c55e',
+            }}
+          />
+          <span className="text-sm font-mono text-[#fafafa]">
+            {bus.id.slice(0, 12).toUpperCase()}
           </span>
         </div>
-      )}
-    </div>
+      </td>
+      <td className="px-4 py-3">
+        <span className="text-sm text-[#8b8b9e]">{(bus as BusModel & { name?: string }).name ?? '—'}</span>
+      </td>
+      <td className="px-4 py-3">
+        {liveState.health ? (
+          <StatusBadge status={liveState.health.status} />
+        ) : (
+          <StatusBadge status="stale" />
+        )}
+      </td>
+      <td className="px-4 py-3" style={{ width: '180px' }}>
+        {liveState.confidence !== null ? (
+          <ConfidenceBar confidence={liveState.confidence} size="sm" showLabel={false} />
+        ) : (
+          <span className="text-xs text-[#4a4a5e]">No signal</span>
+        )}
+      </td>
+      <td className="px-4 py-3 text-right">
+        {liveState.location ? (
+          <span className="text-xs font-mono text-[#4a4a5e]">
+            {liveState.location.lat.toFixed(4)}, {liveState.location.lng.toFixed(4)}
+          </span>
+        ) : (
+          <span className="text-xs text-[#4a4a5e]">—</span>
+        )}
+      </td>
+    </motion.tr>
   );
 }
 
-// --- AlertsPanel ---
-
-function AlertsPanel({ alerts }: { alerts: FleetBusWithHealth[] }) {
-  if (alerts.length === 0) return null;
-  return (
-    <div className="bg-red-50 border border-red-200 rounded-2xl p-5 space-y-2">
-      <h3 className="text-sm font-bold text-red-800 flex items-center gap-2">
-        <AlertTriangle className="w-4 h-4" /> SLA Alerts ({alerts.length})
-      </h3>
-      <ul className="space-y-1">
-        {alerts.map((b) => (
-          <li key={b.routeNumber} className="flex items-center gap-3 text-sm">
-            <span className={`px-2 py-0.5 rounded-full text-xs font-bold uppercase ${statusColor(b.status)}`}>
-              {b.status}
-            </span>
-            <span className="font-semibold text-slate-900">Bus {b.routeNumber}</span>
-            <span className="text-slate-500">
-              &mdash;{" "}
-              {b.status === "stranded"
-                ? `stranded for ${fmtDuration(b.alertDurationMs)}`
-                : b.status === "deviated"
-                ? `off-route for ${fmtDuration(b.alertDurationMs)}`
-                : b.status === "ghost"
-                ? "no GPS signal"
-                : b.status}
-            </span>
-          </li>
-        ))}
-      </ul>
-    </div>
-  );
-}
-
-// --- Page ---
+// ── Main ─────────────────────────────────────────────────────────────────────
 
 export default function AdminPage() {
   const router = useRouter();
-  const { mode, user, isLoading: authLoading, signOut } = useAuthSession();
-  const [activeTab, setActiveTab] = useState("overview");
-  const [isAdmin, setIsAdmin] = useState(mode === "mock");
-  const [now, setNow] = useState<number | null>(null);
+  const { user, isLoading: authLoading } = useAuthContext();
+  const [collegeId, setCollegeId] = useState<string | undefined>();
 
   useEffect(() => {
-    const timer = setTimeout(() => {
-      setNow(Date.now());
-    }, 0);
-    const interval = setInterval(() => setNow(Date.now()), 5000);
-    return () => {
-      clearTimeout(timer);
-      clearInterval(interval);
-    };
-  }, []);
+    if (!authLoading && !user) router.push('/login');
+  }, [authLoading, user, router]);
 
+  // Resolve admin's college from claims
   useEffect(() => {
-    if (mode === "mock") {
-      return;
-    }
+    if (!user) return;
+    let cancelled = false;
+    user.getIdTokenResult().then((result) => {
+      if (!cancelled) setCollegeId(result.claims?.collegeId as string | undefined);
+    });
+    return () => { cancelled = true; };
+  }, [user]);
 
-    if (!authLoading) {
-      if (!user) {
-        router.replace("/login");
-      } else {
-        user.getIdTokenResult()
-          .then((tokenResult) => {
-            if (tokenResult.claims.role === "admin") {
-              setIsAdmin(true);
-            } else {
-              router.replace("/dashboard");
-            }
-          })
-          .catch(() => {
-            router.replace("/dashboard");
-          });
-      }
-    }
-  }, [user, authLoading, mode, router]);
+  const { buses, loading } = useFleet(collegeId);
+  if (!user && !authLoading) return null;
 
-  const { fleet, alerts } = useFleetWithHealth();
-  const activeBuses = fleet.length;
-  const totalPingers = fleet.reduce((acc, b) => acc + b.activePingers, 0);
-  const healthyBuses = fleet.filter((b) => b.status === "healthy").length;
-  const systemHealth =
-    activeBuses === 0 ? "N/A" : `${Math.round((healthyBuses / activeBuses) * 100)}%`;
-
-  if ((mode === "live" && authLoading) || !isAdmin) {
-    return (
-      <div className="min-h-[100dvh] grid place-items-center bg-[#020617]">
-        <div className="flex flex-col items-center gap-3">
-          <Loader2 className="w-8 h-8 animate-spin text-blue-500" />
-          <span className="text-sm font-mono text-slate-300 uppercase tracking-widest animate-pulse">
-            Verifying Admin Access...
-          </span>
-        </div>
-      </div>
-    );
-  }
+  const totalBuses = buses.length;
 
   return (
-    <div className="min-h-[100dvh] bg-slate-50 flex flex-col md:flex-row">
-      {/* Sidebar */}
-      <aside className="w-full md:w-64 bg-slate-900 text-slate-300 flex flex-col border-r border-slate-800 shrink-0">
-        <div className="p-6 flex items-center gap-3 text-white border-b border-slate-800">
-          <div className="w-10 h-10 rounded-xl bg-blue-600 flex items-center justify-center shadow-lg">
-            <ShieldCheck className="w-6 h-6" />
-          </div>
-          <div>
-            <h1 className="font-bold text-lg leading-tight">Admin Console</h1>
-            <p className="text-xs text-slate-400">BusPulse Enterprise</p>
-          </div>
-        </div>
+    <AppShell>
+      <div className="px-6 py-8 max-w-6xl mx-auto" style={{ color: '#fafafa' }}>
+        {/* Page header */}
+        <motion.div
+          initial={{ opacity: 0, y: -8 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.3 }}
+          className="mb-8"
+        >
+          <h1 className="text-heading mb-1">Fleet Overview</h1>
+          <p className="text-sm text-[#8b8b9e]">
+            Real-time status of all buses in your college fleet
+          </p>
+        </motion.div>
 
-        <nav className="flex-1 p-4 space-y-1 overflow-y-auto">
+        {/* Stats row */}
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
           {[
-            { id: "overview", label: "Overview", icon: Activity },
-            { id: "fleet", label: "Fleet & Routes", icon: BusIcon },
-            { id: "users", label: "Students & Parents", icon: Users },
-            { id: "map", label: "Live Command", icon: Map },
-          ].map((item) => (
-            <button
-              key={item.id}
-              onClick={() => setActiveTab(item.id)}
-              className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-semibold transition-all ${
-                activeTab === item.id
-                  ? "bg-blue-600/10 text-blue-400"
-                  : "hover:bg-slate-800 hover:text-white"
-              }`}
+            { label: 'Total Buses', value: totalBuses, icon: Bus, color: '#00c4ff' },
+            { label: 'Fleet Health', value: '—', icon: Pulse, color: '#22c55e' },
+            { label: 'Active Students', value: '—', icon: Users, color: '#8b5cf6' },
+            { label: 'Avg. Confidence', value: '—', icon: ChartBar, color: '#f59e0b' },
+          ].map(({ label, value, icon: Icon, color }) => (
+            <motion.div
+              key={label}
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.35, ease: [0.16, 1, 0.3, 1] }}
+              className="p-4 rounded-[8px]"
+              style={{ background: '#0f0f12', border: '1px solid #1e1e28' }}
             >
-              <item.icon className="w-5 h-5" />
-              {item.label}
-              {item.id === "overview" && alerts.length > 0 && (
-                <span className="ml-auto bg-red-500 text-white text-[10px] font-bold rounded-full w-4 h-4 flex items-center justify-center">
-                  {alerts.length}
-                </span>
-              )}
-            </button>
+              <div className="flex items-center gap-2 mb-2">
+                <Icon size={14} style={{ color }} />
+                <span className="text-label">{label}</span>
+              </div>
+              <p className="text-2xl font-bold" style={{ letterSpacing: '-0.03em', color }}>
+                {loading ? '—' : value}
+              </p>
+            </motion.div>
           ))}
-        </nav>
-
-        <div className="p-4 border-t border-slate-800">
-          <button
-            onClick={() => {
-              void signOut();
-              router.push("/login");
-            }}
-            className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-semibold text-slate-400 hover:bg-red-500/10 hover:text-red-400 transition-all"
-          >
-            <LogOut className="w-5 h-5" />
-            Sign out
-          </button>
         </div>
-      </aside>
 
-      {/* Main Content */}
-      <main className="flex-1 overflow-y-auto p-4 sm:p-8">
-        <div className="max-w-6xl mx-auto space-y-8">
-
-          <header className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-            <div>
-              <h2 className="text-2xl font-bold text-slate-900">System Overview</h2>
-              <p className="text-sm text-slate-500 font-medium">Real-time metrics across all active fleets.</p>
-            </div>
-            <div className="flex items-center gap-3">
-              <span className={`px-3 py-1.5 text-xs font-bold uppercase tracking-wider rounded-full flex items-center gap-1.5 ${
-                alerts.length > 0 ? "bg-red-100 text-red-700" : "bg-green-100 text-green-700"
-              }`}>
-                <span className={`w-2 h-2 rounded-full animate-pulse ${alerts.length > 0 ? "bg-red-500" : "bg-green-500"}`} />
-                {alerts.length > 0 ? `${alerts.length} Alert${alerts.length > 1 ? "s" : ""}` : "All Systems Operational"}
-              </span>
-            </div>
-          </header>
-
-          <AlertsPanel alerts={alerts} />
-
-          {/* KPI Cards */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6">
-            {[
-              { label: "Active Buses", value: String(activeBuses), sub: "with live contributors" },
-              { label: "Students Tracking", value: String(totalPingers), sub: "Active GPS contributors" },
-              { label: "Anomaly Alerts", value: String(alerts.length), sub: alerts.length > 0 ? "Buses need attention" : "Fleet running normally", warn: alerts.length > 0 },
-              { label: "System Health", value: systemHealth, sub: `${healthyBuses} of ${activeBuses} live` },
-            ].map((kpi, i) => (
-              <div key={i} className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm relative overflow-hidden">
-                <div className="absolute top-0 right-0 p-6 opacity-5">
-                  <Activity className="w-16 h-16" />
-                </div>
-                <p className="text-sm font-semibold text-slate-500">{kpi.label}</p>
-                <div className="flex items-end gap-3 mt-2 mb-1">
-                  <h3 className={`text-3xl font-extrabold ${"warn" in kpi && kpi.warn ? "text-red-600" : "text-slate-900"}`}>
-                    {kpi.value}
-                  </h3>
-                </div>
-                <p className="text-xs font-medium text-slate-400">{kpi.sub}</p>
-              </div>
-            ))}
-          </div>
-
-          {/* Active Fleet Table */}
-          <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
-            <div className="px-6 py-5 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
-              <h3 className="text-base font-bold text-slate-900">Active Fleet Status</h3>
-              <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">{fleet.length} buses tracked</span>
-            </div>
-            {fleet.length === 0 ? (
-              <div className="px-6 py-10 text-center">
-                <BusIcon className="w-8 h-8 text-slate-300 mx-auto mb-3" />
-                <p className="text-sm font-semibold text-slate-400">No buses are actively tracked right now.</p>
-                <p className="text-xs text-slate-400 mt-1">Fleet signals appear here as students board and contribute GPS.</p>
-              </div>
-            ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full text-left text-sm">
-                  <thead>
-                    <tr className="bg-white border-b border-slate-100">
-                      <th className="px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Bus ID</th>
-                      <th className="px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Contributors</th>
-                      <th className="px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Health</th>
-                      <th className="px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Signal</th>
-                      <th className="px-6 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Last Update</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100">
-                    {fleet.map((bus) => {
-                      const ageS = now ? Math.round((now - bus.updatedAt) / 1000) : null;
-                      return (
-                        <tr key={bus.routeNumber} className="hover:bg-slate-50/80 transition-colors">
-                          <td className="px-6 py-4 font-semibold text-slate-900">{bus.routeNumber}</td>
-                          <td className="px-6 py-4 font-medium text-slate-600">{bus.activePingers}</td>
-                          <td className="px-6 py-4">
-                            <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-bold uppercase tracking-wider ${statusColor(bus.status)}`}>
-                              <span className={`w-1.5 h-1.5 rounded-full ${statusDot(bus.status)}`} />
-                              {bus.status}
-                            </span>
-                          </td>
-                          <td className="px-6 py-4">
-                            <span className={`px-2.5 py-1 rounded-full text-xs font-bold uppercase tracking-wider ${
-                              bus.estimated ? "bg-yellow-100 text-yellow-800" : "bg-green-100 text-green-700"
-                            }`}>
-                              {bus.estimated ? "Estimated" : "Live"}
-                            </span>
-                          </td>
-                          <td className="px-6 py-4 text-slate-500">
-                            {ageS !== null ? `${ageS}s ago` : "updating..."}
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </div>
-
-          {/* Parent invite generator — always visible to admins */}
-          <InvitePanel />
-
+        {/* Fleet table */}
+        <div
+          className="rounded-[8px] overflow-hidden"
+          style={{ border: '1px solid #1e1e28', background: '#0f0f12' }}
+        >
+          <table className="w-full border-collapse text-sm">
+            <thead>
+              <tr
+                className="text-left"
+                style={{ borderBottom: '1px solid #1e1e28', background: '#0a0a0b' }}
+              >
+                {['Bus ID', 'Name', 'Status', 'Signal', 'Last Location'].map((h) => (
+                  <th key={h} className="px-4 py-3 text-label">
+                    {h}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {loading ? (
+                [1, 2, 3].map((i) => (
+                  <tr key={i} className="border-b border-[#1e1e28]">
+                    {[1, 2, 3, 4, 5].map((j) => (
+                      <td key={j} className="px-4 py-3">
+                        <Skeleton height={16} width={`${60 + j * 10}%`} />
+                      </td>
+                    ))}
+                  </tr>
+                ))
+              ) : buses.length === 0 ? (
+                <tr>
+                  <td colSpan={5} className="px-4 py-12 text-center text-[#4a4a5e]">
+                    No buses found. Contact your Firebase admin to verify data.
+                  </td>
+                </tr>
+              ) : (
+                buses.map((bus) => <BusRow key={bus.id} bus={bus} />)
+              )}
+            </tbody>
+          </table>
         </div>
-      </main>
-    </div>
+      </div>
+    </AppShell>
   );
 }

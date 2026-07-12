@@ -1,296 +1,184 @@
-"use client";
+'use client';
 
-import { useEffect, useState, useRef, useMemo } from "react";
-import { APIProvider, Map, AdvancedMarker, useMap } from "@vis.gl/react-google-maps";
-import { Map as MapIcon, Bus as BusIcon } from "lucide-react";
+import { useEffect, useRef, type ReactNode } from 'react';
+import {
+  APIProvider,
+  Map,
+  Marker,
+  Polyline,
+} from '@vis.gl/react-google-maps';
+import { motion } from 'framer-motion';
+import type { BusLocation, Stop } from '@/types/models';
+import { useAppStore } from '@/lib/store/app-store';
 
-import { getPublicRuntimeEnv, getSetupStatus } from "@/lib/config/env";
-import type { Bus, BusLocation } from "@/types/models";
-import type { FleetBus } from "@/hooks/use-fleet-state";
-import { useAppStore } from "@/lib/store/app-store";
-import { useInterpolatedPosition } from "@/hooks/use-interpolated-position";
-import { useCrowdsourceTracking } from "@/hooks/use-crowdsource-tracking";
-import { haversineMeters } from "@/lib/utils/geo";
+// Dark map style — matches BusPulse design system
+const DARK_MAP_STYLE: google.maps.MapTypeStyle[] = [
+  { elementType: 'geometry', stylers: [{ color: '#0a0a0e' }] },
+  { elementType: 'labels.text.stroke', stylers: [{ color: '#0a0a0e' }] },
+  { elementType: 'labels.text.fill', stylers: [{ color: '#4a4a5e' }] },
+  {
+    featureType: 'administrative.locality',
+    elementType: 'labels.text.fill',
+    stylers: [{ color: '#6b6b7e' }],
+  },
+  {
+    featureType: 'poi',
+    elementType: 'labels.text.fill',
+    stylers: [{ color: '#3a3a4e' }],
+  },
+  {
+    featureType: 'poi.park',
+    elementType: 'geometry',
+    stylers: [{ color: '#0e0e14' }],
+  },
+  {
+    featureType: 'road',
+    elementType: 'geometry',
+    stylers: [{ color: '#1a1a28' }],
+  },
+  {
+    featureType: 'road',
+    elementType: 'geometry.stroke',
+    stylers: [{ color: '#0f0f1a' }],
+  },
+  {
+    featureType: 'road.highway',
+    elementType: 'geometry',
+    stylers: [{ color: '#1e2035' }],
+  },
+  {
+    featureType: 'transit',
+    elementType: 'geometry',
+    stylers: [{ color: '#12121e' }],
+  },
+  {
+    featureType: 'water',
+    elementType: 'geometry',
+    stylers: [{ color: '#050510' }],
+  },
+];
 
-type BusMapProps = {
-  bus: Bus;
+// Type-safe access to google.maps global (loaded async by APIProvider)
+type GoogleMapsGlobal = typeof google;
+function gm(): GoogleMapsGlobal | null {
+  if (typeof window === 'undefined') return null;
+  return (window as Window & { google?: GoogleMapsGlobal }).google ?? null;
+}
+
+interface BusMapProps {
   busLocation: BusLocation | null;
-  fleet?: FleetBus[];
-};
-
-// ── Clustering ────────────────────────────────────────────────────────────────
-
-/**
- * Buses physically within this radius of each other are considered to be the
- * same vehicle (or a convoy) and are merged into a single map marker.
- * 150 m comfortably covers GPS drift AND two buses travelling bumper-to-bumper.
- */
-const CLUSTER_RADIUS_M = 150;
-
-type ClusteredBus = FleetBus & {
-  /** Additional route numbers merged into this cluster (sorted by pingers desc). */
-  mergedRoutes: string[];
-};
-
-/**
- * Pure function — groups `fleet` entries that are within `CLUSTER_RADIUS_M`
- * of each other. The cluster representative is always the entry with the most
- * `activePingers` (majority-vote). Merged routes are listed in the badge.
- */
-function clusterFleet(fleet: FleetBus[]): ClusteredBus[] {
-  // Sort descending by pingers so the most-populated bus wins the cluster label.
-  const sorted = [...fleet].sort((a, b) => b.activePingers - a.activePingers);
-  const clusters: ClusteredBus[] = [];
-
-  for (const bus of sorted) {
-    // Find the nearest existing cluster centroid within CLUSTER_RADIUS_M.
-    const nearest = clusters.find(
-      (c) => haversineMeters(c.lat, c.lng, bus.lat, bus.lng) <= CLUSTER_RADIUS_M,
-    );
-
-    if (nearest) {
-      // Merge into the existing cluster — just add the route number to the badge.
-      nearest.mergedRoutes.push(bus.routeNumber);
-      // Keep the cluster's activePingers up to date (used for info only).
-      nearest.activePingers += bus.activePingers;
-    } else {
-      // New standalone cluster.
-      clusters.push({ ...bus, mergedRoutes: [] });
-    }
-  }
-
-  return clusters;
+  stops: Stop[];
+  userStopId?: string;
+  stale?: boolean;
+  confidence?: number | null;
+  children?: ReactNode;
+  className?: string;
 }
 
-// ── AnimatedBusMarker ─────────────────────────────────────────────────────────
-// Each cluster gets its own component instance so that `useInterpolatedPosition`
-// can manage one RAF animation loop per marker independently.
-function AnimatedBusMarker({
-  fleetBus,
-  isCurrentRoute,
-  mergedRoutes = [],
-}: {
-  fleetBus: FleetBus;
-  isCurrentRoute: boolean;
-  mergedRoutes?: string[];
-}) {
-  const target = {
-    lat: fleetBus.lat,
-    lng: fleetBus.lng,
-    heading: undefined as number | undefined,
-    updatedAt: fleetBus.updatedAt,
-  };
-  const pos = useInterpolatedPosition(target);
+export function BusMap({
+  busLocation,
+  stops,
+  userStopId,
+  stale = false,
+  confidence,
+  children,
+  className,
+}: BusMapProps) {
+  const apiKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY ?? '';
+  const { recenterTick } = useAppStore();
+  const mapRef = useRef<google.maps.Map | null>(null);
 
-  if (!pos) return null;
+  useEffect(() => {
+    if (!mapRef.current || !busLocation) return;
+    mapRef.current.panTo({ lat: busLocation.lat, lng: busLocation.lng });
+  }, [recenterTick, busLocation]);
 
-  const isMerged = mergedRoutes.length > 0;
+  const defaultCenter =
+    busLocation
+      ? { lat: busLocation.lat, lng: busLocation.lng }
+      : stops[0]
+        ? { lat: stops[0].lat, lng: stops[0].lng }
+        : { lat: 17.4949, lng: 78.5945 };
+
+  const polylinePath = stops.map((s) => ({ lat: s.lat, lng: s.lng }));
+  const busColor = stale ? '#4a4a5e' : confidence != null && confidence < 0.45 ? '#f59e0b' : '#00c4ff';
 
   return (
-    <AdvancedMarker
-      key={fleetBus.routeNumber}
-      position={{ lat: pos.lat, lng: pos.lng }}
-      title={
-        isMerged
-          ? `Route ${fleetBus.routeNumber} (+${mergedRoutes.join(", ")})`
-          : `Route ${fleetBus.routeNumber}`
-      }
-      zIndex={50}
+    <motion.div
+      className={`relative w-full h-full ${className ?? ''}`}
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      transition={{ duration: 0.5 }}
     >
-      <div
-        className="relative group"
-        style={{
-          opacity: fleetBus.estimated ? 0.5 : 1,
-          transition: "opacity 0.5s",
-          transform: pos.heading != null ? `rotate(${pos.heading}deg)` : undefined,
-        }}
-      >
-        {/* Route number label (counter-rotated so it stays readable) */}
-        <div
-          className="absolute -top-6 left-1/2 -translate-x-1/2 bg-slate-900 text-white text-xs font-bold px-2 py-1 rounded shadow-lg whitespace-nowrap"
-          style={{ transform: pos.heading != null ? `rotate(-${pos.heading}deg)` : undefined }}
-        >
-          Route {fleetBus.routeNumber}{fleetBus.estimated ? " ~" : ""}
-          {isMerged && (
-            <span className="ml-1 text-[9px] font-semibold text-amber-300 opacity-80">
-              +{mergedRoutes.join("+")}
-            </span>
-          )}
-        </div>
-
-        {/* Bus icon chip */}
-        <div
-          className={`text-slate-900 rounded-xl p-2 shadow-xl border-2 ${
-            fleetBus.estimated ? "border-dashed border-amber-400/60" : "border-white"
-          } ${isCurrentRoute ? "bg-indigo-400" : "bg-amber-400"}`}
-        >
-          <BusIcon className="w-5 h-5" />
-        </div>
-
-        {/* Merged-convoy badge (bottom-right corner of the chip) */}
-        {isMerged && (
-          <div className="absolute -bottom-1 -right-1 bg-slate-900 text-amber-300 text-[8px] font-black px-1 rounded-full border border-amber-400/40 leading-tight">
-            {mergedRoutes.length + 1}
-          </div>
-        )}
-      </div>
-    </AdvancedMarker>
-  );
-}
-
-function MapCentering({ 
-  userLocation 
-}: { 
-  userLocation: { lat: number; lng: number } | null 
-}) {
-  const map = useMap();
-  const hasCenteredOnUserRef = useRef(false);
-  const recenterTick = useAppStore((state) => state.recenterTick);
-
-  useEffect(() => {
-    if (!map) return;
-    
-    // @ts-expect-error Expose map for E2E tests
-    window._test_mapCenter = map;
-
-    // Initial center on user once
-    if (userLocation && !hasCenteredOnUserRef.current) {
-      map.panTo(userLocation);
-      map.setZoom(15);
-      hasCenteredOnUserRef.current = true;
-    }
-  }, [map, userLocation]);
-
-  // Handle manual recenter trigger
-  useEffect(() => {
-    if (map && userLocation && recenterTick > 0) {
-      map.panTo(userLocation);
-      map.setZoom(16);
-    }
-  }, [map, userLocation, recenterTick]);
-
-  return null;
-}
-
-export function BusMap({ bus, busLocation, fleet = [] }: BusMapProps) {
-  const [userLocation, setUserLocation] = useState<{ lat: number; lng: number; updatedAt: number } | null>(null);
-  const { trackingState, peerCount } = useCrowdsourceTracking();
-  
-  const mapType = useAppStore((state) => state.mapType);
-
-  const setup = getSetupStatus();
-  const mapsKey = getPublicRuntimeEnv().NEXT_PUBLIC_GOOGLE_MAPS_API_KEY?.trim() ?? "";
-  const canAttemptLiveMap = setup.mapsReady && mapsKey.length > 0;
-
-  const busLat = busLocation?.lat ?? 17.506;
-  const busLng = busLocation?.lng ?? 78.382;
-
-  // 1. Optimistic local clustering: If we are BOARDED but the Cloud Function 
-  // hasn't synced us to `fleet` yet, visually inject our bus using local GPS.
-  const isOptimisticallyBoarded = trackingState === "BOARDED" && userLocation;
-  const backendHasOurBus = fleet.some(f => f.routeNumber === bus.code);
-
-  const augmentedFleet = useMemo(() => {
-    const next = [...fleet];
-    if (isOptimisticallyBoarded && !backendHasOurBus && userLocation) {
-      next.push({
-        routeNumber: bus.code,
-        lat: userLocation.lat,
-        lng: userLocation.lng,
-        updatedAt: userLocation.updatedAt,
-        activePingers: peerCount + 1,
-        estimated: false,
-      });
-    }
-    return next;
-  }, [backendHasOurBus, bus.code, fleet, isOptimisticallyBoarded, peerCount, userLocation]);
-
-  // Cluster nearby bus markers — majority-vote labelling for clubbed buses.
-  const clusteredFleet = useMemo(() => clusterFleet(augmentedFleet), [augmentedFleet]);
-
-  useEffect(() => {
-    if (typeof navigator === "undefined" || !("geolocation" in navigator)) {
-      return;
-    }
-    const watchId = navigator.geolocation.watchPosition(
-      (position) => {
-        setUserLocation({
-          lat: position.coords.latitude,
-          lng: position.coords.longitude,
-          updatedAt: Date.now(),
-        });
-      },
-      () => {},
-      { enableHighAccuracy: true, timeout: 15000, maximumAge: 10000 }
-    );
-    return () => navigator.geolocation.clearWatch(watchId);
-  }, []);
-
-  if (!canAttemptLiveMap) {
-    return (
-      <div className="w-full h-full relative overflow-hidden bg-slate-950">
-        <div className="absolute inset-0 flex items-center justify-center p-8 text-center">
-          <div className="flex flex-col items-center gap-4">
-            <div className="w-16 h-16 rounded-full bg-white flex items-center justify-center shadow-sm">
-              <MapIcon className="w-8 h-8 text-blue-600" />
-            </div>
-            <span className="px-3 py-1 rounded-full text-xs font-semibold uppercase tracking-wider bg-blue-100 text-blue-700">
-              Preview
-            </span>
-            <div>
-              <h3 className="text-xl font-bold text-slate-900 mb-2">Map preview mode</h3>
-              <p className="text-sm text-slate-600 max-w-xs mx-auto">
-                Live tiles are not configured. Tracking details remain active below.
-              </p>
-            </div>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <div className="w-full h-full relative overflow-hidden bg-slate-950">
-      <APIProvider apiKey={mapsKey} onLoad={() => {}}>
+      <APIProvider apiKey={apiKey}>
         <Map
-          defaultZoom={15}
-          defaultCenter={{ lat: busLat, lng: busLng }}
-          mapId="buspulse-map-id"
-          disableDefaultUI={true}
+          defaultCenter={defaultCenter}
+          defaultZoom={14}
+          mapId="buspulse-dark"
           gestureHandling="greedy"
-          colorScheme="DARK"
-          mapTypeId={mapType}
+          disableDefaultUI
+          zoomControl
+          styles={DARK_MAP_STYLE}
+          className="w-full h-full"
+          reuseMaps
         >
-          {clusteredFleet.map((clusterBus) => (
-            <AnimatedBusMarker
-              key={clusterBus.routeNumber}
-              fleetBus={clusterBus}
-              isCurrentRoute={
-                clusterBus.routeNumber === bus.code ||
-                clusterBus.mergedRoutes.includes(bus.code)
-              }
-              mergedRoutes={clusterBus.mergedRoutes}
+          {polylinePath.length > 1 && (
+            <Polyline
+              path={polylinePath}
+              strokeColor={stale ? '#2a2a3e' : '#00c4ff'}
+              strokeOpacity={stale ? 0.4 : 0.7}
+              strokeWeight={3}
+            />
+          )}
+
+          {stops.map((stop) => (
+            <Marker
+              key={stop.id}
+              position={{ lat: stop.lat, lng: stop.lng }}
+              title={stop.name}
+              icon={gm() ? {
+                path: gm()!.maps.SymbolPath.CIRCLE,
+                scale: stop.id === userStopId ? 8 : 5,
+                fillColor: stop.id === userStopId ? '#00c4ff' : '#fafafa',
+                fillOpacity: 1,
+                strokeColor: stop.id === userStopId ? 'rgba(0,196,255,0.4)' : '#4a4a5e',
+                strokeWeight: stop.id === userStopId ? 3 : 1.5,
+              } : undefined}
             />
           ))}
 
-          {/* 2. Hide the raw blue dot once we successfully merge into the bus */}
-          {userLocation && trackingState !== "BOARDED" && (
-            <AdvancedMarker 
-              position={userLocation} 
-              title="Your Location"
-              zIndex={100}
-            >
-              <div className="w-4 h-4 rounded-full bg-blue-500 border-2 border-white shadow-md relative">
-                <div className="absolute inset-0 rounded-full bg-blue-400 animate-ping opacity-75"></div>
-              </div>
-            </AdvancedMarker>
+          {busLocation && (
+            <Marker
+              position={{ lat: busLocation.lat, lng: busLocation.lng }}
+              title="Bus"
+              icon={gm() ? {
+                path: 'M -10,-14 L 10,-14 L 10,10 Q 10,14 6,14 L -6,14 Q -10,14 -10,10 Z',
+                fillColor: busColor,
+                fillOpacity: 1,
+                strokeColor: stale ? '#2a2a3e' : 'rgba(0,196,255,0.4)',
+                strokeWeight: 2,
+                scale: 1,
+                anchor: { x: 0, y: 0 } as google.maps.Point,
+              } : undefined}
+            />
           )}
-
-          <MapCentering 
-            userLocation={userLocation} 
-          />
         </Map>
       </APIProvider>
-    </div>
+
+      {children}
+
+      {stale && (
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          className="absolute top-4 left-1/2 -translate-x-1/2 z-10"
+        >
+          <div className="flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-mono text-[#f59e0b] bg-[#0f0f12]/90 border border-[#f59e0b]/20 backdrop-blur-sm">
+            <span className="w-1.5 h-1.5 rounded-full bg-[#f59e0b] animate-pulse inline-block" />
+            Signal lost — last known position
+          </div>
+        </motion.div>
+      )}
+    </motion.div>
   );
 }

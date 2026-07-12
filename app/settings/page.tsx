@@ -1,124 +1,154 @@
-"use client";
+'use client';
 
-import Link from "next/link";
-import { ArrowLeft, LogOut } from "lucide-react";
+import { useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
+import { motion } from 'framer-motion';
+import { Gear, MapPin, SignOut } from '@phosphor-icons/react';
 
-import { useAuthSession } from "@/hooks/use-auth-session";
-import { useCurrentStudentProfile } from "@/hooks/use-current-student-profile";
-import { useSetupStatus } from "@/hooks/use-setup-status";
-import { mockStudent } from "@/lib/mock/fixtures";
+import { AppShell } from '@/components/nav/app-shell';
+import { Button } from '@/components/ui/button';
+import { useAuthContext } from '@/components/auth/auth-provider';
+import { signOutCurrentUser } from '@/lib/firebase/auth';
+import { useAppStore } from '@/lib/store/app-store';
 
-function StatusRow({
-  label,
-  value,
-  tone = "default",
-}: {
-  label: string;
-  value: string;
-  tone?: "default" | "success" | "warning";
-}) {
-  const badgeClasses = {
-    default: "bg-gray-100 text-gray-700",
-    success: "bg-green-100 text-green-700",
-    warning: "bg-yellow-100 text-yellow-800",
-  }[tone];
+type MapType = 'hybrid' | 'roadmap' | 'satellite' | 'terrain';
 
-  return (
-    <div className="flex items-center justify-between py-2 border-b border-gray-100 last:border-0">
-      <span className="text-sm font-medium text-gray-900">{label}</span>
-      <span className={`px-2.5 py-0.5 rounded-full text-xs font-semibold ${badgeClasses}`}>
-        {value}
-      </span>
-    </div>
-  );
-}
+const MAP_TYPE_OPTIONS: { value: MapType; label: string; description: string }[] = [
+  { value: 'roadmap', label: 'Roads', description: 'Standard street map' },
+  { value: 'hybrid', label: 'Hybrid', description: 'Satellite + roads (default)' },
+  { value: 'satellite', label: 'Satellite', description: 'Pure satellite imagery' },
+  { value: 'terrain', label: 'Terrain', description: 'Topographic detail' },
+];
 
 export default function SettingsPage() {
-  const { mode, user, signOut } = useAuthSession();
-  const profile = useCurrentStudentProfile(user);
-  const setup = useSetupStatus();
-  const effectiveStudent = profile.student ?? mockStudent;
+  const router = useRouter();
+  const { user, isLoading: authLoading } = useAuthContext();
+  const { mapType, setMapType } = useAppStore();
+  const [isSigningOut, setIsSigningOut] = useState(false);
+  const [role, setRole] = useState<string>('student');
+  // Derive email directly from user object (no setState needed)
+  const email = user?.email ?? '';
 
-  const setupTips: string[] = [];
-  if (!setup.firebaseReady) {
-    setupTips.push("Complete Firebase connection values to enable live sign-in and data sync.");
+  useEffect(() => {
+    if (!authLoading && !user) router.push('/login');
+  }, [authLoading, user, router]);
+
+  useEffect(() => {
+    if (!user) return;
+    let cancelled = false;
+    user.getIdTokenResult().then((r) => {
+      if (!cancelled) setRole((r.claims?.role as string) ?? 'student');
+    });
+    return () => { cancelled = true; };
+  }, [user]);
+
+  async function handleSignOut() {
+    setIsSigningOut(true);
+    await signOutCurrentUser();
+    router.push('/login');
   }
-  if (!setup.mapsReady) {
-    setupTips.push("Add a browser key for Maps JavaScript API to enable live map tiles.");
-  }
-  if (!setup.projectIdMatchesExpected) {
-    setupTips.push("Use the expected BusPulse Firebase project before production rollout.");
-  }
-  if (!setup.hasAllowedDomains) {
-    setupTips.push("Add college domains to enforce student account access policies.");
-  }
+
+  if (!user && !authLoading) return null;
 
   return (
-    <div className="min-h-[100dvh] bg-slate-50 py-8 px-4 sm:py-12">
-      <div className="max-w-3xl mx-auto space-y-6">
-        <div className="flex items-center gap-3">
-          <Link
-            href="/dashboard"
-            className="flex items-center gap-2 text-sm font-medium text-slate-600 hover:text-slate-900 transition-colors bg-white hover:bg-slate-100 px-4 py-2 rounded-full shadow-sm"
-          >
-            <ArrowLeft className="w-4 h-4" />
-            Back
-          </Link>
-          <h1 className="text-2xl font-bold text-slate-900">Settings</h1>
-        </div>
-
-        <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
-          <h2 className="text-lg font-semibold text-slate-900 mb-2">Account</h2>
-          <p className="text-sm text-slate-600">{user?.email ?? "Preview mode"}</p>
-          <p className="text-sm text-slate-600 mt-1">Assigned bus: {effectiveStudent.busId}</p>
-          {user ? (
-            <button
-              onClick={() => void signOut()}
-              className="mt-6 flex items-center gap-2 px-5 py-2.5 bg-red-50 text-red-600 hover:bg-red-100 rounded-full text-sm font-semibold transition-colors"
-            >
-              <LogOut className="w-4 h-4" />
-              Sign out
-            </button>
-          ) : null}
-        </div>
-
-        <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
-          <h2 className="text-lg font-semibold text-slate-900 mb-4">App status</h2>
-          <div className="flex flex-col">
-            <StatusRow
-              label="Data mode"
-              value={mode === "live" ? "Live" : "Preview"}
-              tone={mode === "live" ? "success" : "default"}
-            />
-            <StatusRow
-              label="Map experience"
-              value={setup.mapsReady ? "Ready" : "Fallback"}
-              tone={setup.mapsReady ? "success" : "warning"}
-            />
-            <StatusRow
-              label="Authentication"
-              value={setup.firebaseReady ? "Configured" : "Needs setup"}
-              tone={setup.firebaseReady ? "success" : "warning"}
-            />
+    <AppShell>
+      <div className="px-6 py-8 max-w-xl mx-auto">
+        <motion.div
+          initial={{ opacity: 0, y: -8 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="mb-8"
+        >
+          <div className="flex items-center gap-2 mb-1">
+            <Gear size={20} color="#8b8b9e" />
+            <h1 className="text-heading">Settings</h1>
           </div>
-        </div>
+          <p className="text-sm text-[#8b8b9e]">Manage your preferences and account</p>
+        </motion.div>
 
-        <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm">
-          <h2 className="text-lg font-semibold text-slate-900 mb-3">Setup help</h2>
-          {setupTips.length === 0 ? (
-            <p className="text-sm text-slate-600">Everything required for live student tracking is configured.</p>
-          ) : (
-            <div className="space-y-2">
-              {setupTips.map((tip) => (
-                <div key={tip} className="flex gap-2 items-start">
-                  <div className="w-1.5 h-1.5 rounded-full bg-blue-500 mt-1.5 shrink-0" />
-                  <p className="text-sm text-slate-600">{tip}</p>
-                </div>
-              ))}
+        <div className="flex flex-col gap-6">
+          {/* Account section */}
+          <section
+            className="rounded-[8px] overflow-hidden"
+            style={{ background: '#0f0f12', border: '1px solid #1e1e28' }}
+          >
+            <div className="px-5 py-4 border-b border-[#1e1e28]">
+              <p className="text-label">Account</p>
             </div>
-          )}
+            <div className="p-5 flex flex-col gap-4">
+              <div>
+                <p className="text-xs text-[#8b8b9e] mb-1">Email</p>
+                <p className="text-sm text-[#fafafa] font-mono">{email}</p>
+              </div>
+              <div>
+                <p className="text-xs text-[#8b8b9e] mb-1">Role</p>
+                <span
+                  className="inline-flex items-center px-2 py-0.5 rounded-[4px] text-xs font-medium capitalize"
+                  style={{
+                    background: 'rgba(0,196,255,0.1)',
+                    color: '#00c4ff',
+                  }}
+                >
+                  {role}
+                </span>
+              </div>
+            </div>
+          </section>
+
+          {/* Map section */}
+          <section
+            className="rounded-[8px] overflow-hidden"
+            style={{ background: '#0f0f12', border: '1px solid #1e1e28' }}
+          >
+            <div className="px-5 py-4 border-b border-[#1e1e28]">
+              <div className="flex items-center gap-2">
+                <MapPin size={14} color="#8b8b9e" />
+                <p className="text-label">Map Style</p>
+              </div>
+            </div>
+            <div className="p-5 grid grid-cols-2 gap-2">
+              {MAP_TYPE_OPTIONS.map((opt) => {
+                const isActive = mapType === opt.value;
+                return (
+                  <button
+                    key={opt.value}
+                    onClick={() => setMapType(opt.value)}
+                    className="p-3 rounded-[8px] text-left transition-all"
+                    style={{
+                      background: isActive ? 'rgba(0,196,255,0.08)' : '#0a0a0b',
+                      border: isActive ? '1px solid rgba(0,196,255,0.25)' : '1px solid #252532',
+                    }}
+                  >
+                    <p className="text-sm font-medium" style={{ color: isActive ? '#00c4ff' : '#fafafa' }}>
+                      {opt.label}
+                    </p>
+                    <p className="text-xs text-[#8b8b9e] mt-0.5">{opt.description}</p>
+                  </button>
+                );
+              })}
+            </div>
+          </section>
+
+          {/* Sign out */}
+          <section
+            className="rounded-[8px] overflow-hidden"
+            style={{ background: '#0f0f12', border: '1px solid #1e1e28' }}
+          >
+            <div className="px-5 py-4 border-b border-[#1e1e28]">
+              <p className="text-label">Danger Zone</p>
+            </div>
+            <div className="p-5">
+              <Button
+                variant="danger"
+                leftIcon={<SignOut size={16} weight="bold" />}
+                isLoading={isSigningOut}
+                onClick={handleSignOut}
+              >
+                Sign Out
+              </Button>
+            </div>
+          </section>
         </div>
       </div>
-    </div>
+    </AppShell>
   );
 }

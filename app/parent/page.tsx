@@ -1,339 +1,235 @@
-"use client";
+'use client';
 
-import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
-import { 
-  Link2, 
-  LogOut, 
-  AlertCircle, 
-  CheckCircle2, 
-  Bus, 
-  Navigation, 
-  Activity, 
-  Clock, 
-  Sparkles, 
-  Loader2, 
-  User, 
-  ShieldCheck 
-} from "lucide-react";
-import { getAuth } from "firebase/auth";
+import { useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
+import { motion } from 'framer-motion';
+import {
+  Bus,
+  Users,
+  Clock,
+} from '@phosphor-icons/react';
+import { collection, getDocs, getFirestore, query, where } from 'firebase/firestore';
 
-import { BusMap } from "@/components/map/bus-map";
-import { useAuthSession } from "@/hooks/use-auth-session";
-import { useCurrentBusState } from "@/hooks/use-current-bus-state";
-import { useFleetState } from "@/hooks/use-fleet-state";
-import { readParentLinkByParentUid, readStudentProfileById } from "@/lib/firebase/firestore";
-import { linkParent } from "@/app/actions/parent";
-import type { ParentLink, Student } from "@/types/models";
-import { mockBus } from "@/lib/mock/fixtures";
+import { AppShell } from '@/components/nav/app-shell';
+import { BusMap } from '@/components/map/bus-map';
+import { StatusBadge } from '@/components/ui/badge';
+import { EtaDisplay } from '@/components/ui/eta-display';
+import { ConfidenceBar } from '@/components/ui/confidence-bar';
+import { Skeleton } from '@/components/ui/skeleton';
+import { useAuthContext } from '@/components/auth/auth-provider';
+import { useLiveBusState } from '@/hooks/use-live-bus-state';
+import { getFirebaseClientApp } from '@/lib/firebase/client';
+import type { Student } from '@/types/models';
+
+// ── Hooks ───────────────────────────────────────────────────────────────────
+
+function useParentData(uid: string | null) {
+  const [children, setChildren] = useState<Student[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (!uid) { setLoading(false); return; }
+    const app = getFirebaseClientApp();
+    if (!app) { setLoading(false); return; }
+    const db = getFirestore(app);
+    let cancelled = false;
+
+    // parentLinks collection: { parentId, studentId }
+    getDocs(query(collection(db, 'parentLinks'), where('parentId', '==', uid)))
+      .then(async (linksSnap) => {
+        if (cancelled || linksSnap.empty) { setLoading(false); return; }
+        const studentIds = linksSnap.docs.map((d) => d.data().studentId as string);
+        const studentDocs = await Promise.all(
+          studentIds.map((id) =>
+            import('firebase/firestore').then(({ doc, getDoc }) =>
+              getDoc(doc(db, 'students', id)),
+            ),
+          ),
+        );
+        if (!cancelled) {
+          setChildren(
+            studentDocs
+              .filter((s) => s.exists())
+              .map((s) => ({ id: s.id, ...s.data() } as Student)),
+          );
+          setLoading(false);
+        }
+      })
+      .catch(() => { if (!cancelled) setLoading(false); });
+
+    return () => { cancelled = true; };
+  }, [uid]);
+
+  return { children, loading };
+}
+
+// ── Child Bus Card ────────────────────────────────────────────────────────────
+
+interface ChildBusCardProps {
+  child: Student;
+  isSelected: boolean;
+  onClick: () => void;
+}
+
+function ChildBusCard({ child, isSelected, onClick }: ChildBusCardProps) {
+  const liveState = useLiveBusState({
+    busId: child.busId ?? null,
+  });
+
+  return (
+    <motion.button
+      layout
+      onClick={onClick}
+      className="w-full text-left p-4 rounded-[8px] transition-colors"
+      style={{
+        background: isSelected ? 'rgba(0,196,255,0.06)' : '#0f0f12',
+        border: isSelected ? '1px solid rgba(0,196,255,0.2)' : '1px solid #1e1e28',
+      }}
+    >
+      <div className="flex items-center justify-between mb-2">
+        <span className="text-sm font-semibold text-[#fafafa]">
+          {child.fullName ?? child.email}
+        </span>
+        {liveState.health && <StatusBadge status={liveState.health.status} />}
+      </div>
+
+      <div className="flex items-center gap-1.5 text-xs text-[#8b8b9e] mb-3">
+        <Bus size={12} />
+        <span className="font-mono">{child.busId?.slice(0, 12).toUpperCase() ?? '—'}</span>
+      </div>
+
+      {liveState.confidence !== null && (
+        <ConfidenceBar confidence={liveState.confidence} size="sm" showLabel={false} />
+      )}
+
+      <div className="mt-2 flex items-center gap-1 text-[#4a4a5e] text-xs">
+        <Clock size={11} />
+        <span>
+          {liveState.etaMinutes !== null
+            ? `ETA ${liveState.etaMinutes} min`
+            : liveState.stale
+              ? 'Signal lost'
+              : 'Calculating…'}
+        </span>
+      </div>
+    </motion.button>
+  );
+}
+
+// ── Main ─────────────────────────────────────────────────────────────────────
 
 export default function ParentPage() {
   const router = useRouter();
-  const { mode, user, isLoading: authLoading, signOut } = useAuthSession();
-  
-  const [inviteCode, setInviteCode] = useState("");
-  const [linkLoading, setLinkLoading] = useState(false);
-  const [linkError, setLinkError] = useState<string | null>(null);
-  
-  // Linked states
-  const [parentLink, setParentLink] = useState<ParentLink | null>(null);
-  const [student, setStudent] = useState<Student | null>(null);
-  const [isLoadingProfile, setIsLoadingProfile] = useState(true);
+  const { user, isLoading: authLoading } = useAuthContext();
+  const { children, loading } = useParentData(user?.uid ?? null);
+  const [selectedChild, setSelectedChild] = useState<Student | null>(null);
 
-  // AI delay explanation state
-  const [aiExplanation, setAiExplanation] = useState<string | null>(null);
-  const [isAiLoading, setIsAiLoading] = useState(false);
-
-  // Load parent links if signed in
   useEffect(() => {
-    let isMounted = true;
-    
-    async function checkLink() {
-      if (!user) {
-        setIsLoadingProfile(false);
-        return;
-      }
-      setIsLoadingProfile(true);
-      try {
-        const linkResult = await readParentLinkByParentUid(user.uid);
-        if (linkResult.ok && linkResult.parentLink) {
-          if (isMounted) setParentLink(linkResult.parentLink);
-          
-          // Get student details
-          const studentResult = await readStudentProfileById(linkResult.parentLink.studentId);
-          if (studentResult.ok && studentResult.student) {
-            if (isMounted) setStudent(studentResult.student);
-          }
-        }
-      } catch (err) {
-        console.error("Failed to load parent link details", err);
-      } finally {
-        if (isMounted) setIsLoadingProfile(false);
-      }
-    }
+    if (!authLoading && !user) router.push('/login');
+  }, [authLoading, user, router]);
 
-    if (!authLoading) {
-      void checkLink();
-    }
+  // Auto-select first child when data loads (initializer pattern avoids setState-in-effect)
+  const selectedChildResolved = selectedChild ?? (children.length > 0 ? children[0] : null);
 
-    return () => {
-      isMounted = false;
-    };
-  }, [user, authLoading]);
+  const selectedBusId = selectedChildResolved?.busId ?? null;
+  const liveState = useLiveBusState({ busId: selectedBusId });
 
-  // Auth gate
-  useEffect(() => {
-    if (mode === "live" && !authLoading && !user) {
-      router.replace("/login");
-    }
-  }, [authLoading, mode, router, user]);
+  if (!user && !authLoading) return null;
 
-  const handleLink = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (inviteCode.length < 6) return;
-
-    setLinkLoading(true);
-    setLinkError(null);
-
-    try {
-      const auth = getAuth();
-      const currentUser = auth.currentUser;
-      if (!currentUser) {
-        setLinkError("Authentication required. Please sign in again.");
-        setLinkLoading(false);
-        return;
-      }
-
-      const idToken = await currentUser.getIdToken();
-      const result = await linkParent(inviteCode.trim().toUpperCase(), idToken);
-
-      if (!result.ok) {
-        setLinkError(result.error);
-      } else {
-        // Refresh token to apply parent claims
-        await currentUser.getIdToken(true);
-        
-        // Reload link details
-        const linkResult = await readParentLinkByParentUid(currentUser.uid);
-        if (linkResult.ok && linkResult.parentLink) {
-          setParentLink(linkResult.parentLink);
-          const studentResult = await readStudentProfileById(linkResult.parentLink.studentId);
-          if (studentResult.ok && studentResult.student) {
-            setStudent(studentResult.student);
-          }
-        }
-      }
-    } catch (err) {
-      setLinkError(err instanceof Error ? err.message : "An unexpected error occurred.");
-    } finally {
-      setLinkLoading(false);
-    }
-  };
-
-  const fetchAiExplanation = async () => {
-    if (!student?.busId) return;
-    setIsAiLoading(true);
-    setAiExplanation(null);
-    try {
-      const auth = getAuth();
-      const currentUser = auth.currentUser;
-      if (!currentUser) return;
-      const idToken = await currentUser.getIdToken();
-      const res = await fetch(`/api/explain/${student.busId}`, {
-        headers: {
-          Authorization: `Bearer ${idToken}`,
-        },
-      });
-      if (res.ok) {
-        const data = await res.json();
-        setAiExplanation(data.explanation);
-      } else {
-        setAiExplanation("AI Operator is currently offline.");
-      }
-    } catch {
-      setAiExplanation("Network error fetching delay explanation.");
-    } finally {
-      setIsAiLoading(false);
-    }
-  };
-
-  // Setup live bus subscriptions for the linked student's bus
-  const targetBusId = student?.busId ?? "unknown";
-  const busState = useCurrentBusState({ busId: targetBusId });
-  const { fleet } = useFleetState(targetBusId);
-
-  const isBootstrapping = authLoading || isLoadingProfile;
-
-  if (isBootstrapping) {
-    return (
-      <div className="min-h-[100dvh] grid place-items-center bg-[#020617]">
-        <div className="flex flex-col items-center gap-6">
-          <Loader2 className="w-8 h-8 animate-spin text-indigo-400" />
-          <span className="text-xs font-mono text-slate-400 uppercase tracking-widest">LOADING_WORKSPACE</span>
-        </div>
-      </div>
-    );
-  }
-
-  // Render parent dashboard if linked
-  if (parentLink && student) {
-    return (
-      <div className="h-[100dvh] w-full flex flex-col relative bg-[#020617] overflow-hidden font-sans">
-        {/* Background Map */}
-        <div className="absolute inset-0 z-0">
-          <BusMap bus={busState.bus ?? mockBus} busLocation={busState.location} fleet={fleet} />
-          <div className="absolute inset-0 bg-gradient-to-t from-[#020617]/95 via-transparent to-[#020617]/50 pointer-events-none" />
-        </div>
-
-        {/* Floating Header */}
-        <header className="absolute top-4 left-4 right-4 sm:top-6 sm:left-6 sm:right-6 z-40">
-          <div className="mx-auto max-w-5xl flex items-center justify-between glass-header px-4 sm:px-6 py-3 rounded-2xl shadow-2xl">
-            <div className="flex items-center gap-3">
-              <div className="w-9 h-9 rounded-xl flex items-center justify-center bg-indigo-500/20 border border-indigo-500/40">
-                <Link2 className="w-4 h-4 text-indigo-400" />
+  return (
+    <AppShell>
+      <div
+        className="flex h-[calc(100dvh-56px)] overflow-hidden"
+        style={{ backgroundColor: '#0a0a0b' }}
+      >
+        {/* ── Sidebar ──────────────────────────────────────────────────── */}
+        <aside
+          className="hidden md:flex flex-col flex-shrink-0 overflow-y-auto no-bounce gap-4 p-4"
+          style={{
+            width: '280px',
+            backgroundColor: '#0f0f12',
+            borderRight: '1px solid #1e1e28',
+          }}
+        >
+          <div>
+            <p className="text-label mb-3">Linked Students</p>
+            {loading ? (
+              <div className="flex flex-col gap-2">
+                {[1, 2].map((i) => <Skeleton key={i} height={100} />)}
               </div>
-              <div>
-                <h1 className="text-sm font-bold text-white tracking-tight font-mono">BusPulse Family</h1>
-                <p className="text-[8px] font-mono text-slate-400 uppercase tracking-widest">
-                  RELATIONSHIP: {parentLink.relationship.toUpperCase()}
+            ) : children.length === 0 ? (
+              <div className="text-center py-8">
+                <Users size={28} color="#4a4a5e" className="mx-auto mb-2" />
+                <p className="text-sm text-[#4a4a5e]">No linked students found.</p>
+                <p className="text-xs text-[#4a4a5e]/60 mt-1">
+                  Contact your college admin to link a student.
                 </p>
               </div>
-            </div>
+            ) : (
+              <div className="flex flex-col gap-2">
+                {children.map((child) => (
+                  <ChildBusCard
+                    key={child.id}
+                    child={child}
+                    isSelected={selectedChild?.id === child.id}
+                    onClick={() => setSelectedChild(child)}
+                  />
+                ))}
+              </div>
+            )}
+          </div>
+        </aside>
 
-            <button
-              onClick={() => { void signOut(); router.push("/login"); }}
-              className="w-9 h-9 rounded-full bg-slate-900 border border-white/10 flex items-center justify-center text-slate-400 hover:text-white transition-colors shadow-lg"
-              title="Sign Out"
+        {/* ── Map ──────────────────────────────────────────────────────── */}
+        <div className="relative flex-1 overflow-hidden">
+          {!selectedBusId ? (
+            <div className="w-full h-full flex items-center justify-center">
+              <div className="text-center">
+                <Bus size={36} color="#1e1e28" className="mx-auto mb-3" />
+                <p className="text-sm text-[#4a4a5e]">Select a student to see their bus</p>
+              </div>
+            </div>
+          ) : (
+            <BusMap
+              busLocation={liveState.location}
+              stops={[]}
+              stale={liveState.stale}
+              confidence={liveState.confidence}
+              className="h-full"
             >
-              <LogOut className="w-4 h-4" />
-            </button>
-          </div>
-        </header>
-
-        {/* Floating Bottom Card */}
-        <div className="absolute bottom-4 left-4 right-4 sm:left-auto sm:right-6 sm:w-[360px] z-20 flex flex-col gap-3">
-          <div className="glass-panel rounded-3xl p-4 shadow-2xl border border-white/[0.08] relative">
-            <div className="flex items-center justify-between mb-3.5">
-              <div>
-                <span className="text-[8px] font-mono text-indigo-400 uppercase tracking-widest font-bold">tracking student</span>
-                <h2 className="text-lg font-bold text-white tracking-tight flex items-center gap-1.5 mt-0.5">
-                  <User className="w-4 h-4 text-indigo-400" />
-                  {student.fullName}
-                </h2>
-              </div>
-              <div className="px-2 py-0.5 rounded bg-indigo-500/10 border border-indigo-500/20 text-indigo-400 text-[9px] font-mono font-bold uppercase tracking-wider">
-                Bus {student.busId}
-              </div>
-            </div>
-
-            {/* AI explanation segment */}
-            <div className="bg-slate-950/80 rounded-2xl p-3 border border-white/5 mb-3.5">
-              {aiExplanation ? (
-                <div className="space-y-1">
-                  <p className="text-[9px] font-mono text-indigo-400 font-bold uppercase tracking-wider flex items-center gap-1">
-                    <Sparkles className="w-3.5 h-3.5 text-indigo-400 animate-pulse" />
-                    AI Late Reasoning
-                  </p>
-                  <p className="text-xs text-slate-300 leading-normal">{aiExplanation}</p>
-                </div>
-              ) : (
-                <div className="flex items-center justify-between gap-3">
-                  <p className="text-[10px] text-slate-400">
-                    Need explanation for delays or status?
-                  </p>
-                  <button
-                    onClick={fetchAiExplanation}
-                    disabled={isAiLoading}
-                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-indigo-500 hover:bg-indigo-600 text-white font-mono text-[9px] font-bold uppercase tracking-wider transition-all shrink-0 active:scale-[0.98] disabled:opacity-50"
-                  >
-                    {isAiLoading ? (
-                      <Loader2 className="w-3 h-3 animate-spin" />
-                    ) : (
-                      <Sparkles className="w-3 h-3" />
-                    )}
-                    Explain
-                  </button>
-                </div>
-              )}
-            </div>
-
-            <div className="flex items-center justify-between border-t border-white/[0.06] pt-3 text-[9px] font-mono uppercase tracking-wider text-slate-500">
-              <div className="flex items-center gap-1">
-                <Clock className="w-3 h-3 text-slate-600" />
-                Live Telemetry
-              </div>
-              <div className="text-emerald-400 font-bold">
-                {fleet.length > 0 ? "STREAMING_ACTIVE" : "OFFLINE"}
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  // Render invite code link form if not linked
-  return (
-    <div className="min-h-[100dvh] w-full flex items-center justify-center bg-[#020617] p-4 relative overflow-hidden font-sans">
-      <div 
-        className="absolute inset-0 opacity-[0.05] pointer-events-none" 
-        style={{
-          backgroundImage: "radial-gradient(rgba(255, 255, 255, 0.4) 1px, transparent 1px)",
-          backgroundSize: "20px 20px"
-        }}
-      />
-      <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-indigo-600/10 rounded-full blur-[100px] pointer-events-none" />
-
-      <div className="w-full max-w-[400px] relative z-10">
-        <div className="glass-panel rounded-3xl p-8 shadow-2xl border border-white/[0.08]">
-          <div className="flex flex-col items-center text-center">
-            
-            <div className="w-12 h-12 bg-indigo-500/10 border border-indigo-500/20 text-indigo-400 rounded-full flex items-center justify-center mb-6">
-              <Link2 className="w-6 h-6" />
-            </div>
-
-            <h2 className="text-2xl font-bold font-mono text-white tracking-tight mb-2">Link Student</h2>
-            <p className="text-slate-400 text-xs max-w-[280px] leading-relaxed mb-6">
-              Enter the 6-digit secure invite code generated by your student&apos;s college admin console.
-            </p>
-
-            <form onSubmit={handleLink} className="w-full space-y-5">
-              <div>
-                <input
-                  type="text"
-                  required
-                  maxLength={6}
-                  placeholder="e.g. B8A9Z1"
-                  value={inviteCode}
-                  onChange={(e) => setInviteCode(e.target.value.toUpperCase())}
-                  className="w-full text-center tracking-[0.4em] font-mono text-2xl font-bold bg-slate-950 border border-white/10 rounded-2xl px-4 py-3.5 focus:outline-none focus:ring-1 focus:ring-indigo-500 focus:border-transparent text-white transition-all"
-                />
-              </div>
-
-              {linkError && (
-                <div className="flex items-start gap-2.5 p-3.5 bg-red-500/10 border border-red-500/20 rounded-xl text-left text-xs font-mono text-red-300">
-                  <AlertCircle className="w-4 h-4 text-red-400 shrink-0 mt-0.5" />
-                  <p>{linkError}</p>
-                </div>
-              )}
-
-              <button
-                type="submit"
-                disabled={inviteCode.length < 6 || linkLoading}
-                className="w-full py-4 rounded-2xl font-mono text-xs font-bold tracking-wider uppercase text-white bg-indigo-500 hover:bg-indigo-600 disabled:bg-slate-900 disabled:text-slate-500 disabled:opacity-50 transition-all shadow-lg active:scale-[0.99]"
+              {/* ETA overlay */}
+              <motion.div
+                initial={{ y: 20, opacity: 0 }}
+                animate={{ y: 0, opacity: 1 }}
+                transition={{ duration: 0.4, ease: [0.16, 1, 0.3, 1] }}
+                className="absolute bottom-0 left-0 right-0 z-20 px-5 py-4"
+                style={{
+                  background: 'rgba(10,10,11,0.92)',
+                  backdropFilter: 'blur(16px)',
+                  borderTop: '1px solid #1e1e28',
+                }}
               >
-                {linkLoading ? "VERIFYING_CODE..." : "LINK_STUDENT_PROFILE"}
-              </button>
-            </form>
-            
-            <div className="w-full mt-6 pt-5 border-t border-white/[0.06] flex items-center justify-center gap-1.5 text-[9px] font-mono text-slate-500 uppercase tracking-widest">
-              <ShieldCheck className="w-3.5 h-3.5 text-emerald-500" />
-              Secure parent verification
-            </div>
-
-          </div>
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <p className="text-xs text-[#8b8b9e] mb-1">
+                      {selectedChildResolved?.fullName ?? 'Student'}&apos;s bus
+                    </p>
+                    <EtaDisplay
+                      etaMinutes={liveState.etaMinutes}
+                      confidence={liveState.confidence}
+                      lastUpdatedAt={liveState.lastUpdatedAt}
+                      stale={liveState.stale}
+                    />
+                  </div>
+                  {liveState.health && (
+                    <StatusBadge status={liveState.health.status} />
+                  )}
+                </div>
+              </motion.div>
+            </BusMap>
+          )}
         </div>
       </div>
-    </div>
+    </AppShell>
   );
 }
