@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, type ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import {
   APIProvider,
   Map,
@@ -9,6 +9,7 @@ import {
   useMap,
 } from '@vis.gl/react-google-maps';
 import { motion } from 'framer-motion';
+import { MapPin, Warning } from '@phosphor-icons/react';
 import type { BusLocation, Stop } from '@/types/models';
 import { useAppStore } from '@/lib/store/app-store';
 
@@ -50,12 +51,12 @@ const DARK_MAP_STYLE: google.maps.MapTypeStyle[] = [
   {
     featureType: 'transit',
     elementType: 'geometry',
-    stylers: [{ color: '#12121e' }],
+    stylers: [{ color: '#141420' }],
   },
   {
     featureType: 'water',
     elementType: 'geometry',
-    stylers: [{ color: '#050510' }],
+    stylers: [{ color: '#05070a' }],
   },
 ];
 
@@ -93,6 +94,119 @@ function MapCenteringController({
   return null;
 }
 
+// Sleek fallback schematic when Google Maps key auth fails
+function MapAuthFallback({
+  stops,
+  busLocation,
+  userStopId,
+  stale,
+  children,
+}: {
+  stops: Stop[];
+  busLocation: BusLocation | null;
+  userStopId?: string;
+  stale: boolean;
+  children?: ReactNode;
+}) {
+  const busColor = stale ? '#4a4a5e' : '#00c4ff';
+  const busBorder = stale ? '#2a2a3e' : '#22d3ee';
+  const glowShadow = stale ? 'none' : '0 0 16px rgba(6,182,212,0.3)';
+  return (
+    <div className="w-full h-full relative overflow-hidden bg-[#0a0a0b] flex flex-col items-center justify-center p-6 bg-dot-grid">
+      {/* Background cybernetic grid lines */}
+      <div className="absolute inset-0 bg-radial-glow pointer-events-none opacity-40" />
+
+      {/* Cybernetic schematic route overlay */}
+      <div className="w-full max-w-xl aspect-[1.8/1] relative flex items-center justify-center z-10 border border-[#1e1e28] rounded-[12px] bg-[#0f0f12]/80 backdrop-blur-md p-8 shadow-2xl">
+        {stops.length > 0 ? (
+          <div className="w-full flex items-center justify-between relative py-12">
+            {/* Connection path line */}
+            <div className="absolute left-6 right-6 top-1/2 -translate-y-1/2 h-1 bg-[#1e1e28] rounded-full overflow-hidden">
+              <motion.div
+                initial={{ width: 0 }}
+                animate={{ width: '100%' }}
+                className="h-full bg-gradient-to-r from-[#00c4ff] to-[#0088cc]"
+                transition={{ duration: 1.5, ease: 'easeOut' }}
+              />
+            </div>
+
+            {stops.map((stop, index) => {
+              const isUserStop = stop.id === userStopId;
+              const isClosest =
+                busLocation &&
+                stops.reduce<{ index: number; dist: number }>(
+                  (acc, s, idx) => {
+                    const dist = Math.hypot(busLocation.lat - s.lat, busLocation.lng - s.lng);
+                    return dist < acc.dist ? { index: idx, dist } : acc;
+                  },
+                  { index: 0, dist: Infinity }
+                ).index === index;
+
+              return (
+                <div key={stop.id} className="flex flex-col items-center relative z-10">
+                  {/* Glowing stop nodes */}
+                  <motion.div
+                    initial={{ scale: 0.8, opacity: 0 }}
+                    animate={{ scale: 1, opacity: 1 }}
+                    transition={{ delay: index * 0.1 }}
+                    className="w-5 h-5 rounded-full flex items-center justify-center border shadow-lg"
+                    style={{
+                      background: isUserStop ? '#00c4ff' : '#1a1a1f',
+                      borderColor: isUserStop ? '#00c4ff' : '#252532',
+                      boxShadow: isUserStop ? '0 0 12px rgba(0,196,255,0.4)' : 'none',
+                    }}
+                  >
+                    {isUserStop && <MapPin size={10} color="#0a0a0b" weight="fill" />}
+                  </motion.div>
+                  <span className="text-[10px] font-mono text-[#8b8b9e] mt-2 absolute top-full w-24 text-center truncate">
+                    {stop.name}
+                  </span>
+
+                  {/* Pulsing Bus Node overlay on the closest stop */}
+                  {isClosest && (
+                    <motion.div
+                      layoutId="fallback-bus"
+                      className="absolute -top-10 w-8 h-8 rounded-lg flex items-center justify-center shadow-lg transition-colors duration-300"
+                      style={{
+                        background: busColor,
+                        borderColor: busBorder,
+                        borderWidth: '1px',
+                        boxShadow: glowShadow,
+                      }}
+                      animate={{ y: [0, -4, 0] }}
+                      transition={{ repeat: Infinity, duration: 2, ease: 'easeInOut' }}
+                    >
+                      <span className="text-[10px] font-bold text-[#0a0a0b]">BUS</span>
+                    </motion.div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        ) : (
+          <div className="flex flex-col items-center gap-3 text-center">
+            <span className="w-1.5 h-1.5 rounded-full bg-[#00c4ff] animate-ping" />
+            <p className="text-sm font-mono text-[#8b8b9e]">Synchronizing telemetry stream…</p>
+          </div>
+        )}
+      </div>
+
+      {/* Futuristic telemetry status tag */}
+      <div className="mt-8 flex flex-col items-center gap-2 z-10">
+        <div className="flex items-center gap-2 px-3 py-1.5 rounded-full text-[10px] font-mono text-[#f59e0b] bg-[#f59e0b]/10 border border-[#f59e0b]/20">
+          <Warning size={12} />
+          <span>DEVELOPER MAP EMULATOR ACTIVE · KEY AUTHENTICATION ERROR</span>
+        </div>
+        <p className="text-xs text-[#4a4a5e] max-w-sm text-center">
+          Google Maps failed to authenticate this domain. Core telemetry calculations remain operational below.
+        </p>
+      </div>
+
+      {children}
+    </div>
+  );
+}
+
 export function BusMap({
   busLocation,
   stops,
@@ -104,6 +218,21 @@ export function BusMap({
 }: BusMapProps) {
   const apiKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY ?? '';
   const { recenterTick } = useAppStore();
+  const [mapAuthFailed, setMapAuthFailed] = useState(false);
+
+  // Monitor Google Maps authorization failure
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const win = window as unknown as { gm_authFailure?: () => void };
+    const prevHandler = win.gm_authFailure;
+    win.gm_authFailure = () => {
+      setMapAuthFailed(true);
+      if (prevHandler) prevHandler();
+    };
+    return () => {
+      win.gm_authFailure = prevHandler;
+    };
+  }, []);
 
   const defaultCenter =
     busLocation
@@ -114,6 +243,20 @@ export function BusMap({
 
   const polylinePath = stops.map((s) => ({ lat: s.lat, lng: s.lng }));
   const busColor = stale ? '#4a4a5e' : confidence != null && confidence < 0.45 ? '#f59e0b' : '#00c4ff';
+
+  // Render high-fidelity cybernetic fallback if maps key failed to authenticate or is empty
+  if (mapAuthFailed || !apiKey) {
+    return (
+      <MapAuthFallback
+        stops={stops}
+        busLocation={busLocation}
+        userStopId={userStopId}
+        stale={stale}
+      >
+        {children}
+      </MapAuthFallback>
+    );
+  }
 
   return (
     <motion.div
