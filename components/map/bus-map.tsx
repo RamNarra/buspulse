@@ -1,11 +1,12 @@
 'use client';
 
-import { useEffect, useRef, type ReactNode } from 'react';
+import { useEffect, type ReactNode } from 'react';
 import {
   APIProvider,
   Map,
   Marker,
   Polyline,
+  useMap,
 } from '@vis.gl/react-google-maps';
 import { motion } from 'framer-motion';
 import type { BusLocation, Stop } from '@/types/models';
@@ -75,6 +76,23 @@ interface BusMapProps {
   className?: string;
 }
 
+// Controller defined outside parent to avoid closure warnings
+function MapCenteringController({
+  busLocation,
+  recenterTick,
+}: {
+  busLocation: BusLocation | null;
+  recenterTick: number;
+}) {
+  const map = useMap();
+  useEffect(() => {
+    if (map && busLocation) {
+      map.panTo({ lat: busLocation.lat, lng: busLocation.lng });
+    }
+  }, [map, recenterTick, busLocation]);
+  return null;
+}
+
 export function BusMap({
   busLocation,
   stops,
@@ -86,12 +104,6 @@ export function BusMap({
 }: BusMapProps) {
   const apiKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY ?? '';
   const { recenterTick } = useAppStore();
-  const mapRef = useRef<google.maps.Map | null>(null);
-
-  useEffect(() => {
-    if (!mapRef.current || !busLocation) return;
-    mapRef.current.panTo({ lat: busLocation.lat, lng: busLocation.lng });
-  }, [recenterTick, busLocation]);
 
   const defaultCenter =
     busLocation
@@ -114,14 +126,14 @@ export function BusMap({
         <Map
           defaultCenter={defaultCenter}
           defaultZoom={14}
-          mapId="buspulse-dark"
           gestureHandling="greedy"
           disableDefaultUI
           zoomControl
           styles={DARK_MAP_STYLE}
-          className="w-full h-full"
+          className="w-full h-full min-h-[300px]"
           reuseMaps
         >
+          <MapCenteringController busLocation={busLocation} recenterTick={recenterTick} />
           {polylinePath.length > 1 && (
             <Polyline
               path={polylinePath}
