@@ -31,13 +31,13 @@ export type TrackingState = "IDLE" | "WAITING" | "BOARDED";
 const BOARDED_RADIUS_M = 30;
 
 /** How long (ms) proximity must be maintained before confirming BOARDED. */
-const BOARDED_CONFIRM_MS = 8_000;
+const BOARDED_CONFIRM_MS = 1000;
 
 /**
  * Speed (m/s) at which a user with NO peer bus centroid available can self-
- * promote to BOARDED. 1.5 m/s ≈ 5.4 km/h — slow walking/crawling traffic.
+ * promote to BOARDED.
  */
-const COLD_START_SPEED_MS = 1.5;
+const COLD_START_SPEED_MS = 0.0;
 
 /**
  * Once BOARDED, stay BOARDED for at least this long even if the user slows
