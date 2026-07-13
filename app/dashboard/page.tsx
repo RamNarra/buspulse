@@ -20,6 +20,7 @@ import { ConfidenceBar } from '@/components/ui/confidence-bar';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useAuthContext } from '@/components/auth/auth-provider';
 import { useLiveBusState } from '@/hooks/use-live-bus-state';
+import { useLocationContribution } from '@/hooks/use-location-contribution';
 import { useAppStore } from '@/lib/store/app-store';
 import { getFirebaseClientApp } from '@/lib/firebase/client';
 import type { Student, Route, Stop } from '@/types/models';
@@ -316,6 +317,33 @@ export default function DashboardPage() {
   const userStop = stops.find((s) => s.id === userStopId) ?? null;
 
   const liveState = useLiveBusState({ busId, userStop });
+
+  // Generate unique device ID for location tracking
+  const [deviceId] = useState(() => {
+    if (typeof window !== 'undefined') {
+      let id = localStorage.getItem('buspulse_device_id');
+      if (!id) {
+        id = Math.random().toString(36).substring(2, 15);
+        localStorage.setItem('buspulse_device_id', id);
+      }
+      return id;
+    }
+    return 'ssr-device';
+  });
+
+  // Start broadcasting live coordinate presence
+  const { start: startBroadcasting } = useLocationContribution({
+    uid: user?.uid ?? '',
+    busId: busId ?? '',
+    routeId: route?.id ?? 'route-a1',
+    deviceId,
+  });
+
+  useEffect(() => {
+    if (user && busId) {
+      startBroadcasting();
+    }
+  }, [user, busId, startBroadcasting]);
 
   // Redirect to login if not authenticated
   useEffect(() => {
