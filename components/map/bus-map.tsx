@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { motion } from 'framer-motion';
 import maplibregl from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
@@ -18,6 +18,30 @@ interface BusMapProps {
   className?: string;
 }
 
+// MapLibre Satellite Style Configuration using ESRI World Imagery
+const SATELLITE_MAP_STYLE = {
+  version: 8 as const,
+  sources: {
+    'satellite-tiles': {
+      type: 'raster' as const,
+      tiles: [
+        'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+      ],
+      tileSize: 256,
+      attribution: 'Tiles &copy; Esri &mdash; Source: Esri, i-cubed, USDA, USGS, AEX, GeoEye, Getmapping, Aerogrid, IGN, IGP, UPR-EGP, and the GIS User Community',
+    },
+  },
+  layers: [
+    {
+      id: 'satellite',
+      type: 'raster' as const,
+      source: 'satellite-tiles',
+      minzoom: 0,
+      maxzoom: 19,
+    },
+  ],
+};
+
 export function BusMap({
   busLocation,
   stops,
@@ -30,7 +54,9 @@ export function BusMap({
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
   const busMarkerRef = useRef<maplibregl.Marker | null>(null);
+  const userMarkerRef = useRef<maplibregl.Marker | null>(null);
   const stopMarkersRef = useRef<maplibregl.Marker[]>([]);
+  const [userLocation, setUserLocation] = useState<{ lat: number; lng: number } | null>(null);
   const { recenterTick } = useAppStore();
 
   const defaultCenter: [number, number] = busLocation
@@ -39,14 +65,35 @@ export function BusMap({
       ? [stops[0].lng, stops[0].lat]
       : [78.5945, 17.4949]; // Aurora Campus default coordinates (longitude first in MapLibre)
 
-  // 1. Initialize MapLibre GL Map
+  // 1. Geolocation tracker for User Location Pointer
+  useEffect(() => {
+    if (typeof window === 'undefined' || !('geolocation' in navigator)) return;
+
+    const watchId = navigator.geolocation.watchPosition(
+      (position) => {
+        setUserLocation({
+          lat: position.coords.latitude,
+          lng: position.coords.longitude,
+        });
+      },
+      () => {
+        // Fallback or permission denied
+      },
+      { enableHighAccuracy: true, timeout: 15000, maximumAge: 10000 }
+    );
+
+    return () => {
+      navigator.geolocation.clearWatch(watchId);
+    };
+  }, []);
+
+  // 2. Initialize MapLibre GL Map (Satellite Mode)
   useEffect(() => {
     if (!mapContainerRef.current) return;
 
-    // Use OpenFreeMap's public dark style
     const map = new maplibregl.Map({
       container: mapContainerRef.current,
-      style: 'https://tiles.openfreemap.org/styles/dark',
+      style: SATELLITE_MAP_STYLE,
       center: defaultCenter,
       zoom: 14,
       attributionControl: false,
@@ -83,9 +130,9 @@ export function BusMap({
             'line-cap': 'round',
           },
           paint: {
-            'line-color': stale ? '#2a2a3e' : '#00c4ff',
+            'line-color': stale ? '#4a4a5e' : '#00c4ff',
             'line-width': 4,
-            'line-opacity': stale ? 0.4 : 0.85,
+            'line-opacity': stale ? 0.5 : 0.9,
           },
         });
       }
@@ -98,7 +145,7 @@ export function BusMap({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // 2. Synchronize stops markers
+  // 3. Synchronize stops markers
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
@@ -141,7 +188,7 @@ export function BusMap({
     });
   }, [stops, userStopId]);
 
-  // 3. Synchronize bus location marker
+  // 4. Synchronize bus location marker
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
@@ -197,7 +244,39 @@ export function BusMap({
     }
   }, [busLocation, stale, confidence]);
 
-  // 4. Center map on busLocation or triggers
+  // 5. Synchronize User Location Pointer (blue dot)
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+
+    if (!userLocation) {
+      if (userMarkerRef.current) {
+        userMarkerRef.current.remove();
+        userMarkerRef.current = null;
+      }
+      return;
+    }
+
+    if (!userMarkerRef.current) {
+      const el = document.createElement('div');
+      el.className = 'relative w-4 h-4 rounded-full bg-blue-500 border-2 border-white shadow-md flex items-center justify-center';
+      
+      // Ping animation element
+      const ping = document.createElement('div');
+      ping.className = 'absolute inset-0 rounded-full bg-blue-400 animate-ping opacity-75 pointer-events-none';
+      el.appendChild(ping);
+
+      const marker = new maplibregl.Marker({ element: el })
+        .setLngLat([userLocation.lng, userLocation.lat])
+        .addTo(map);
+
+      userMarkerRef.current = marker;
+    } else {
+      userMarkerRef.current.setLngLat([userLocation.lng, userLocation.lat]);
+    }
+  }, [userLocation]);
+
+  // 6. Center map on busLocation or triggers
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
@@ -217,7 +296,7 @@ export function BusMap({
       {/* Floating active open-source mapping badge */}
       <div className="absolute top-4 right-4 z-20 flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[10px] font-mono text-[#00c4ff] bg-[#0a0a0b]/80 border border-[#00c4ff]/20 backdrop-blur-md pointer-events-none">
         <span className="w-1.5 h-1.5 rounded-full bg-[#00c4ff] animate-pulse" />
-        <span>MAPLIBRE GL + OPENFREEMAP ACTIVE</span>
+        <span>MAPLIBRE SATELLITE ACTIVE</span>
       </div>
 
       {children}
