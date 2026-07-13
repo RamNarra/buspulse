@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { X, NavigationArrow, Speedometer, Clock, Info } from '@phosphor-icons/react';
+import { X, NavigationArrow, Speedometer, Clock, Info, Bug } from '@phosphor-icons/react';
 import maplibregl from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
 
@@ -30,6 +30,7 @@ const SATELLITE_MAP_STYLE = {
         'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
       ],
       tileSize: 256,
+      maxzoom: 19, // Inform MapLibre that source tiles are available up to zoom level 19
       attribution: 'Tiles &copy; Esri &mdash; Source: Esri, i-cubed, USDA, USGS, AEX, GeoEye, Getmapping, Aerogrid, IGN, IGP, UPR-EGP, and the GIS User Community',
     },
   },
@@ -65,9 +66,15 @@ export function BusMap({
   const busMarkerRef = useRef<maplibregl.Marker | null>(null);
   const userMarkerRef = useRef<maplibregl.Marker | null>(null);
   const stopMarkersRef = useRef<maplibregl.Marker[]>([]);
-  const [userLocation, setUserLocation] = useState<{ lat: number; lng: number } | null>(null);
+  const [userLocation, setUserLocation] = useState<{
+    lat: number;
+    lng: number;
+    accuracy: number;
+    updatedAt: number;
+  } | null>(null);
   const [isFollowingUser, setIsFollowingUser] = useState(true);
   const { recenterTick } = useAppStore();
+  const [showDebug, setShowDebug] = useState(false);
 
   const [selectedBus, setSelectedBus] = useState<{
     id: string;
@@ -85,6 +92,22 @@ export function BusMap({
       ? [stops[0].lng, stops[0].lat]
       : [78.5945, 17.4949];
 
+  // Merge Calculation Constants
+  const MERGE_THRESHOLD_METERS = 50;
+
+  const rawDistance = userLocation && busLocation
+    ? haversineMeters(userLocation.lat, userLocation.lng, busLocation.lat, busLocation.lng)
+    : null;
+
+  const accuracyUser = userLocation?.accuracy ?? 15;
+  const accuracyBus = busLocation?.accuracy ?? 15;
+  
+  const effectiveDistance = rawDistance !== null
+    ? Math.max(0, rawDistance - (accuracyUser + accuracyBus))
+    : null;
+
+  const isMerged = !!(effectiveDistance !== null && effectiveDistance <= MERGE_THRESHOLD_METERS);
+
   // 1. Geolocation tracker for User Location Pointer
   useEffect(() => {
     if (typeof window === 'undefined' || !('geolocation' in navigator)) return;
@@ -94,6 +117,8 @@ export function BusMap({
         setUserLocation({
           lat: position.coords.latitude,
           lng: position.coords.longitude,
+          accuracy: position.coords.accuracy,
+          updatedAt: position.timestamp,
         });
       },
       () => {},
@@ -114,6 +139,7 @@ export function BusMap({
       style: SATELLITE_MAP_STYLE,
       center: defaultCenter,
       zoom: 14,
+      maxZoom: 18, // Limit map viewport zoom to zoom level 18 to prevent "Map data not found" blank states
       attributionControl: false,
     });
 
@@ -210,12 +236,6 @@ export function BusMap({
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
-
-    const isMerged = !!(
-      userLocation &&
-      busLocation &&
-      haversineMeters(userLocation.lat, userLocation.lng, busLocation.lat, busLocation.lng) <= 45
-    );
 
     // Handle User Location Marker
     if (userLocation && !isMerged) {
@@ -326,7 +346,7 @@ export function BusMap({
         busMarkerRef.current = null;
       }
     }
-  }, [busLocation, userLocation, stale, confidence]);
+  }, [busLocation, userLocation, stale, confidence, isMerged]);
 
   // 5. Update info card state when bus position moves in real time
   useEffect(() => {
@@ -340,10 +360,11 @@ export function BusMap({
           speed: busLocation.speed,
           heading: busLocation.heading,
           updatedAt: busLocation.updatedAt || Date.now(),
+          isMerged,
         };
       });
     }
-  }, [busLocation, selectedBus]);
+  }, [busLocation, selectedBus, isMerged]);
 
   // 6. Smooth real-time camera tracking (Follow Mode)
   useEffect(() => {
@@ -384,6 +405,70 @@ export function BusMap({
         <span className="w-1.5 h-1.5 rounded-full bg-[#00c4ff] animate-pulse" />
         <span>MAPLIBRE SATELLITE ACTIVE</span>
       </div>
+
+      {/* Floating Developer Debug Panel Button */}
+      <button
+        onClick={() => setShowDebug((d) => !d)}
+        className="absolute bottom-4 left-4 z-30 p-2 rounded-lg bg-[#0f0f12]/90 border border-[#252532] text-[#8b8b9e] hover:text-[#fafafa] hover:bg-[#1a1a1f] transition-all flex items-center justify-center shadow-lg"
+        aria-label="Toggle Developer Debug Info"
+      >
+        <Bug size={16} />
+      </button>
+
+      {/* Developer Debug Overlay panel */}
+      <AnimatePresence>
+        {showDebug && (
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.95 }}
+            className="absolute bottom-16 left-4 z-30 w-[290px] p-4 rounded-xl text-xs font-mono text-[#fafafa] border border-[#252532] flex flex-col gap-2 shadow-2xl"
+            style={{
+              background: 'rgba(15,15,18,0.92)',
+              backdropFilter: 'blur(20px)',
+              WebkitBackdropFilter: 'blur(20px)',
+            }}
+          >
+            <div className="flex items-center justify-between border-b border-[#252532] pb-1.5 mb-1">
+              <span className="font-semibold text-[#00c4ff]">Telemetry Debug</span>
+              <span className="text-[9px] text-[#8b8b9e]">v1.0.2</span>
+            </div>
+            
+            <div className="flex flex-col gap-1 text-[10px]">
+              <div>
+                <span className="text-[#8b8b9e]">User Location:</span>
+                <p className="pl-2">{userLocation ? `${userLocation.lat.toFixed(6)}, ${userLocation.lng.toFixed(6)}` : 'No Signal'}</p>
+                <p className="pl-2 text-[#4a4a5e]">Accuracy: {userLocation?.accuracy ? `${userLocation.accuracy.toFixed(1)}m` : 'N/A'}</p>
+              </div>
+
+              <div className="mt-1">
+                <span className="text-[#8b8b9e]">Bus Location:</span>
+                <p className="pl-2">{busLocation ? `${busLocation.lat.toFixed(6)}, ${busLocation.lng.toFixed(6)}` : 'No Signal'}</p>
+                <p className="pl-2 text-[#4a4a5e]">Accuracy: {busLocation?.accuracy ? `${busLocation.accuracy.toFixed(1)}m` : 'N/A'}</p>
+              </div>
+
+              <div className="mt-1.5 border-t border-[#252532]/40 pt-1.5 flex flex-col gap-0.5">
+                <div className="flex justify-between">
+                  <span>Raw Distance:</span>
+                  <span className="text-[#00c4ff]">{rawDistance !== null ? `${rawDistance.toFixed(1)} m` : '—'}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span>Eff. Distance:</span>
+                  <span className="text-[#00c4ff]">{effectiveDistance !== null ? `${effectiveDistance.toFixed(1)} m` : '—'}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span>Merge Threshold:</span>
+                  <span>{MERGE_THRESHOLD_METERS} m</span>
+                </div>
+                <div className="flex justify-between font-semibold mt-1">
+                  <span>Merged State:</span>
+                  <span style={{ color: isMerged ? '#22c55e' : '#ef4444' }}>{isMerged ? 'TRUE' : 'FALSE'}</span>
+                </div>
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Real-time floating info card for selected bus */}
       <AnimatePresence>
