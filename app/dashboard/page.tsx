@@ -309,8 +309,8 @@ export default function DashboardPage() {
   const { triggerRecenter } = useAppStore();
 
   const { profile, loading: profileLoading } = useStudentProfile(user?.uid ?? null);
-  const busId = profile?.busId ?? null;
-  const userStopId = profile?.stopId ?? null;
+  const busId = profile?.busId ?? 'bus-a1'; // Default fallback to Route 15 bus
+  const userStopId = profile?.stopId ?? 'stop-jntuh'; // Default fallback stop
 
   const { route, stops, loading: routeLoading } = useRoute(busId);
   const userStop = stops.find((s) => s.id === userStopId) ?? null;
