@@ -20,56 +20,15 @@ import { ConfidenceBar } from '@/components/ui/confidence-bar';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useAuthContext } from '@/components/auth/auth-provider';
 import { useLiveBusState } from '@/hooks/use-live-bus-state';
-import { useLocationContribution } from '@/hooks/use-location-contribution';
+import { useCurrentStudentProfile } from '@/hooks/use-current-student-profile';
+import { useCrowdsourceTracking } from '@/hooks/use-crowdsource-tracking';
 import { useAppStore } from '@/lib/store/app-store';
 import { getFirebaseClientApp } from '@/lib/firebase/client';
-import type { Student, Route, Stop } from '@/types/models';
-
-// ── Types ───────────────────────────────────────────────────────────────────
-
-// Lightweight profile shape — no extension to avoid type conflicts
-interface StudentProfile {
-  busId: string | null;
-  stopId: string | null;
-  fullName?: string;
-  email?: string;
-  collegeId?: string;
-}
+import type { Route, Stop } from '@/types/models';
 
 // ── Hooks ───────────────────────────────────────────────────────────────────
 
-function useStudentProfile(uid: string | null) {
-  const [profile, setProfile] = useState<StudentProfile | null>(null);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    let cancelled = false;
-    async function load() {
-      if (!uid) { setProfile(null); setLoading(false); return; }
-      const app = getFirebaseClientApp();
-      if (!app) { setProfile(null); setLoading(false); return; }
-      const db = getFirestore(app);
-      try {
-        const snap = await getDoc(doc(db, 'students', uid));
-        if (cancelled) return;
-        if (snap.exists()) {
-          const data = snap.data() as Student;
-          setProfile({ ...data, busId: data.busId ?? null, stopId: data.stopId ?? null });
-        } else {
-          setProfile({ busId: null, stopId: null });
-        }
-      } catch {
-        if (!cancelled) setProfile({ busId: null, stopId: null });
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    }
-    void load();
-    return () => { cancelled = true; };
-  }, [uid]);
-
-  return { profile, loading };
-}
+// Replaced local useStudentProfile with official hook imported above
 
 function useRoute(busId: string | null) {
   const [route, setRoute] = useState<Route | null>(null);
@@ -309,41 +268,17 @@ export default function DashboardPage() {
   const { user, isLoading: authLoading } = useAuthContext();
   const { triggerRecenter } = useAppStore();
 
-  const { profile, loading: profileLoading } = useStudentProfile(user?.uid ?? null);
-  const busId = profile?.busId ?? 'bus-a1'; // Default fallback to Route 15 bus
-  const userStopId = profile?.stopId ?? 'stop-jntuh'; // Default fallback stop
+  const { student, isLoading: profileLoading } = useCurrentStudentProfile(user);
+  const busId = student?.busId ?? 'bus-a1'; // Default fallback to Route 15 bus
+  const userStopId = student?.stopId ?? 'stop-jntuh'; // Default fallback stop
 
   const { route, stops, loading: routeLoading } = useRoute(busId);
   const userStop = stops.find((s) => s.id === userStopId) ?? null;
 
   const liveState = useLiveBusState({ busId, userStop });
 
-  // Generate unique device ID for location tracking
-  const [deviceId] = useState(() => {
-    if (typeof window !== 'undefined') {
-      let id = localStorage.getItem('buspulse_device_id');
-      if (!id) {
-        id = Math.random().toString(36).substring(2, 15);
-        localStorage.setItem('buspulse_device_id', id);
-      }
-      return id;
-    }
-    return 'ssr-device';
-  });
-
-  // Start broadcasting live coordinate presence
-  const { start: startBroadcasting } = useLocationContribution({
-    uid: user?.uid ?? '',
-    busId: busId ?? '',
-    routeId: route?.id ?? 'route-a1',
-    deviceId,
-  });
-
-  useEffect(() => {
-    if (user && busId) {
-      startBroadcasting();
-    }
-  }, [user, busId, startBroadcasting]);
+  // Use official tracking & leader election coordinator hook
+  const { trackingState, peerCount } = useCrowdsourceTracking(stops);
 
   // Redirect to login if not authenticated
   useEffect(() => {
@@ -392,7 +327,16 @@ export default function DashboardPage() {
             <div className="flex flex-col gap-5 p-5">
               {/* Route header */}
               <div>
-                <p className="text-label mb-1.5">Your Route</p>
+                <div className="flex items-center justify-between mb-1.5">
+                  <p className="text-label mb-0">Your Route</p>
+                  <span className="px-2 py-0.5 rounded-[4px] text-[9px] font-mono font-bold tracking-wide uppercase" style={{
+                    backgroundColor: trackingState === 'BOARDED' ? 'rgba(34,197,94,0.1)' : 'rgba(0,196,255,0.1)',
+                    color: trackingState === 'BOARDED' ? '#22c55e' : '#00c4ff',
+                    border: `1px solid ${trackingState === 'BOARDED' ? 'rgba(34,197,94,0.2)' : 'rgba(0,196,255,0.2)'}`
+                  }}>
+                    {trackingState}
+                  </span>
+                </div>
                 <h2 className="text-[#fafafa] font-semibold text-base leading-tight">
                   {route?.name ?? 'Unassigned'}
                 </h2>
@@ -455,6 +399,7 @@ export default function DashboardPage() {
                 lastUpdatedAt={liveState.lastUpdatedAt}
                 health={liveState.health}
                 stale={liveState.stale}
+                contributorCount={peerCount}
                 onRecenter={triggerRecenter}
               />
             </BusMap>
