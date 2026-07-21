@@ -280,8 +280,8 @@ export default function DashboardPage() {
   const { triggerRecenter } = useAppStore();
 
   const { student, isLoading: profileLoading } = useCurrentStudentProfile(user);
-  const busId = student?.busId ?? 'bus-a1'; // Default fallback to Route 15 bus
-  const userStopId = student?.stopId ?? 'stop-jntuh'; // Default fallback stop
+  const busId = student?.busId ?? null;
+  const userStopId = student?.stopId ?? null;
 
   const { route, stops, loading: routeLoading } = useRoute(busId);
   const userStop = stops.find((s) => s.id === userStopId) ?? null;
@@ -291,6 +291,7 @@ export default function DashboardPage() {
   const routePath = route?.polyline ?? stops.map((s) => ({ lat: s.lat, lng: s.lng }));
   // Use official tracking & leader election coordinator hook with off-route protection
   const { trackingState, peerCount } = useCrowdsourceTracking(stops, routePath);
+  const activeSensorCount = peerCount + (trackingState === 'BOARDED' ? 1 : 0);
 
   // Redirect to login if not authenticated
   useEffect(() => {
@@ -411,7 +412,7 @@ export default function DashboardPage() {
                 lastUpdatedAt={liveState.lastUpdatedAt}
                 health={liveState.health}
                 stale={liveState.stale}
-                contributorCount={peerCount}
+                contributorCount={activeSensorCount}
                 onRecenter={triggerRecenter}
               />
             </BusMap>

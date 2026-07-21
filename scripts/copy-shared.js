@@ -17,6 +17,12 @@ const copies = [
   // Anomaly
   { src: "lib/shared/anomaly.ts", dest: "lib/server/anomaly.ts" },
   { src: "lib/shared/anomaly.ts", dest: "functions/src/anomaly-math.ts" },
+  // Clustering
+  { src: "lib/live/clustering.ts", dest: "functions/src/clustering.ts" },
+  // Kalman
+  { src: "lib/live/kalman.ts", dest: "functions/src/kalman.ts" },
+  // Reputation
+  { src: "lib/live/reputation.ts", dest: "functions/src/reputation.ts" },
 ];
 
 console.log("[BusPulse] Synchronizing shared logic files...");

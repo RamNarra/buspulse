@@ -9,6 +9,8 @@ import {
   getHealthStatus,
   isCandidateStale,
 } from "./scoring";
+import { findLargestSpatialCluster } from "./clustering";
+import { createKalmanFilter, updateKalmanState } from "./kalman";
 import type { BusHealth, BusLocation, TrackerCandidate } from "./models";
 import { FUNCTION_REGION } from "./region";
 
@@ -19,13 +21,13 @@ export { notifyApproachingStudents } from "./fcm-notify";
 admin.initializeApp();
 const db = admin.database();
 
-// ── EMA state store (in-memory, per Cloud Function container instance) ────────
-// Survives across warm invocations; decays naturally when the instance recycles.
+// ── State stores (in-memory, per Cloud Function container instance) ──────────
 const EMA_ALPHA = 0.4;
 const emaState: Record<
   string,
   { lat: number; lng: number; speed: number }
 > = {};
+const kalmanState: Record<string, ReturnType<typeof createKalmanFilter>> = {};
 
 // ── Aggregator function ───────────────────────────────────────────────────────
 
@@ -96,8 +98,14 @@ export const aggregateBusLocation = onValueWritten(
         )
       : candidates;
 
-    // 5. Derive weighted centroid
-    const derived = deriveLocationFromCandidates(filtered, now);
+    // 5. Apply DBSCAN spatial density clustering when >= 2 candidates exist
+    const clusteredCandidates =
+      filtered.length >= 2
+        ? findLargestSpatialCluster(filtered)
+        : filtered;
+
+    // 6. Derive weighted centroid
+    const derived = deriveLocationFromCandidates(clusteredCandidates, now);
     const staleCandidateCount = filtered.filter((c) =>
       isCandidateStale(c, now),
     ).length;
@@ -118,7 +126,7 @@ export const aggregateBusLocation = onValueWritten(
       return;
     }
 
-    // 6. EMA smoothing — blends new reading with previous smoothed position
+    // 7. EMA smoothing — blends new reading with previous smoothed position
     const prevEma = emaState[busId];
     if (prevEma) {
       derived.lat = EMA_ALPHA * derived.lat + (1 - EMA_ALPHA) * prevEma.lat;
@@ -131,6 +139,21 @@ export const aggregateBusLocation = onValueWritten(
       lng: derived.lng,
       speed: derived.speed ?? 0,
     };
+
+    // 8. 2D Constant Velocity Kalman Filter — smooths trajectories and predicts motion
+    if (!kalmanState[busId]) {
+      kalmanState[busId] = createKalmanFilter(derived.lat, derived.lng);
+    } else {
+      const kState = updateKalmanState(
+        kalmanState[busId],
+        derived.lat,
+        derived.lng,
+        now,
+      );
+      kalmanState[busId] = kState;
+      derived.lat = kState.lat;
+      derived.lng = kState.lng;
+    }
 
     // 7. Compute health
     const health: BusHealth = {
