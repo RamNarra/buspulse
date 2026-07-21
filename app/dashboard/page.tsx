@@ -202,9 +202,11 @@ function EtaPanel({
   lastUpdatedAt,
   health,
   stale,
-  contributorCount,
+  contributorCount = 0,
   onRecenter,
 }: EtaPanelProps) {
+  const isOffline = !etaMinutes && contributorCount === 0;
+
   return (
     <motion.div
       initial={{ y: 20, opacity: 0 }}
@@ -222,30 +224,39 @@ function EtaPanel({
         {/* Left: ETA + route name */}
         <div className="flex flex-col gap-1 min-w-0">
           <div className="flex items-center gap-2 mb-1">
-            <Bus size={14} color="#8b8b9e" />
+            <Bus size={14} color={isOffline ? "#ef4444" : "#8b8b9e"} />
             <span className="text-xs text-[#8b8b9e] font-medium truncate">
-              {routeName ?? (busId ? `Bus ${busId.slice(0, 8)}` : 'Loading…')}
+              {routeName ?? (busId ? `Bus ${busId}` : 'Loading…')}
             </span>
           </div>
-          <EtaDisplay
-            etaMinutes={etaMinutes}
-            confidence={confidence}
-            lastUpdatedAt={lastUpdatedAt}
-            stale={stale}
-          />
+          {isOffline ? (
+            <div className="flex flex-col gap-0.5">
+              <span className="text-sm font-semibold text-[#ef4444]">Bus Offline</span>
+              <span className="text-xs text-[#4a4a5e]">Waiting for live sensor...</span>
+            </div>
+          ) : (
+            <EtaDisplay
+              etaMinutes={etaMinutes}
+              confidence={confidence}
+              lastUpdatedAt={lastUpdatedAt}
+              stale={stale}
+            />
+          )}
         </div>
 
         {/* Right: health + contributors + recenter */}
         <div className="flex flex-col items-end gap-3 flex-shrink-0">
-          {health && (
+          {health ? (
             <StatusBadge status={health.status} />
+          ) : (
+            <StatusBadge status={isOffline ? "stale" : "healthy"} />
           )}
-          {typeof contributorCount === 'number' && (
-            <div className="flex items-center gap-1.5 text-xs text-[#4a4a5e]" title="Anonymous bus sensors on this route">
-              <Users size={12} />
-              <span className="font-mono">{contributorCount} bus sensors</span>
-            </div>
-          )}
+          <div className="flex items-center gap-1.5 text-xs text-[#4a4a5e]" title="Active anonymous bus sensors inside bus">
+            <Users size={12} />
+            <span className="font-mono">
+              {contributorCount} active {contributorCount === 1 ? 'sensor' : 'sensors'}
+            </span>
+          </div>
           <button
             onClick={onRecenter}
             className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-[6px] text-xs text-[#8b8b9e] transition-colors"
