@@ -25,30 +25,15 @@ declare global {
   }
 }
 
-export type TrackingState = "IDLE" | "WAITING" | "BOARDED";
+export type TrackingState = "IDLE" | "WAITING" | "ELIGIBLE" | "BOARDED";
 
 // ── Thresholds ────────────────────────────────────────────────────────────────
 
 /** How long (ms) proximity must be maintained before confirming BOARDED. */
 const BOARDED_CONFIRM_MS = 1000;
 
-/**
- * Once BOARDED, stay BOARDED for at least this long even if the user slows
- * down or temporarily loses the bus centroid (traffic jam hysteresis).
- */
-const BOARDED_STICKY_MS = 120_000; // 2 minutes
-
-/**
- * If the user is BOARDED and comes to a complete stop near a known bus stop,
- * demote them faster (they probably got off). Requires the stops list.
- */
-const STOP_DEMOTION_MS = 30_000; // 30 seconds near a stop
-
 /** GPS staleness window: pings older than 30s are excluded from centroid. */
 const STALE_PING_MS = 30_000;
-
-/** Radius used to check if the user is near a static bus stop. */
-const NEAR_STOP_RADIUS_M = 40;
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -138,7 +123,6 @@ export function useCrowdsourceTracking(
   const peersRef = useRef<Record<string, PeerPing>>({});
   const proximityStartRef = useRef<number | null>(null);
   const lastBoardedAtRef = useRef<number | null>(null);
-  const nearStopSinceRef = useRef<number | null>(null);
   const trackingStateRef = useRef<TrackingState>("IDLE");
 
   /**
@@ -337,29 +321,41 @@ export function useCrowdsourceTracking(
           : prev?.heading ?? 0;
       lastUploadRef.current = { ts: now, lat, lng, heading: newHeadingForRef };
 
-      if (newState === "BOARDED") {
-        if (!lastBoardedAtRef.current) lastBoardedAtRef.current = Date.now();
-        void set(boardedRef, { lat, lng, speed: speedMs, visible, updatedAt: Date.now() }).catch(
+      if (newState === "BOARDED" || newState === "ELIGIBLE") {
+        if (newState === "BOARDED" && !lastBoardedAtRef.current) {
+          lastBoardedAtRef.current = Date.now();
+        }
+        void set(boardedRef, {
+          lat,
+          lng,
+          speed: speedMs,
+          visible,
+          updatedAt: Date.now(),
+          candidateState: newState,
+        }).catch(
           (error) => console.error("[BusPulse] RTDB write failed: trackerCandidates", error),
         );
         void remove(waitingRef).catch(
           (error) => console.error("[BusPulse] RTDB remove failed: approachingStudents", error),
         );
-        void tryClaimLeadership(visible);
 
-        if (isLeaderRef.current) {
-          const busLocRef = ref(db, `busLocations/${busId}`);
-          void set(busLocRef, {
-            lat,
-            lng,
-            speed: speedMs,
-            heading: newHeadingForRef,
-            accuracy: 10,
-            updatedAt: Date.now(),
-            confidence: 0.9,
-            sourceCount: 1,
-            routeMatchScore: 1.0,
-          }).catch((err) => console.error("[BusPulse] Leader busLocations write failed:", err));
+        if (newState === "BOARDED") {
+          void tryClaimLeadership(visible);
+
+          if (isLeaderRef.current) {
+            const busLocRef = ref(db, `busLocations/${busId}`);
+            void set(busLocRef, {
+              lat,
+              lng,
+              speed: speedMs,
+              heading: newHeadingForRef,
+              accuracy: 10,
+              updatedAt: Date.now(),
+              confidence: 0.9,
+              sourceCount: 1,
+              routeMatchScore: 1.0,
+            }).catch((err) => console.error("[BusPulse] Leader busLocations write failed:", err));
+          }
         }
       } else {
         lastBoardedAtRef.current = null;
@@ -381,20 +377,16 @@ export function useCrowdsourceTracking(
         const visible = !document.hidden;
 
         // ── Derive speed from position deltas when browser returns null ───────
-        // GeolocationCoordinates.speed is null on most Android Chrome and desktop
-        // browsers. Without this fallback ALL speed checks fail → stuck in WAITING.
         let derivedSpeedMs = 0;
         const prev = lastGpsRef.current;
         if (prev) {
           const dtSec = (now - prev.ts) / 1000;
-          if (dtSec > 0 && dtSec < 30) { // ignore stale gaps > 30 s
+          if (dtSec > 0 && dtSec < 30) {
             derivedSpeedMs = haversineMeters(prev.lat, prev.lng, lat, lng) / dtSec;
           }
         }
         lastGpsRef.current = { lat, lng, ts: now };
 
-        // Use the best available speed: GPS-reported if valid, otherwise derived.
-        // Cap derived speed at 40 m/s (144 km/h) to suppress GPS jumps.
         const speedMs = Math.min(
           Math.max(speed ?? 0, derivedSpeedMs),
           40,
@@ -408,50 +400,19 @@ export function useCrowdsourceTracking(
         });
 
         if (evalResult.disconnect) {
-          // Immediately disconnect sensor if off-route or reached destination
           proximityStartRef.current = null;
           commitState("WAITING", lat, lng, speedMs, visible);
           return;
         }
 
-        // ── Determine if we are near a known bus stop ─────────────────────
-        const nearStop = busStops.some(
-          (s) => haversineMeters(lat, lng, s.lat, s.lng) <= NEAR_STOP_RADIUS_M,
-        );
-
-        // ── Track near-stop time ──────────────────────────────────────────
-        if (nearStop && speedMs < 0.5) {
-          if (nearStopSinceRef.current === null) nearStopSinceRef.current = now;
-        } else {
-          nearStopSinceRef.current = null;
-        }
-
-        // ── Sticky hysteresis: once BOARDED, resist demotion ─────────────
-        const currentState = trackingStateRef.current;
-        const lastBoarded = lastBoardedAtRef.current;
-        const boardedFor = lastBoarded ? now - lastBoarded : 0;
-
-        if (currentState === "BOARDED" && lastBoarded) {
-          // Near a stop + stationary for 30s → likely alighted
-          const nearStopFor = nearStopSinceRef.current
-            ? now - nearStopSinceRef.current
-            : 0;
-          if (nearStop && speedMs < 0.5 && nearStopFor >= STOP_DEMOTION_MS) {
-            // Fast-track demotion
-          } else if (boardedFor < BOARDED_STICKY_MS) {
-            // Within 2-min sticky window — keep BOARDED regardless of speed
-            commitState("BOARDED", lat, lng, speedMs, visible);
-            return;
-          }
-        }
-
-        // ── Determine new state ───────────────────────────────────────────
+        // ── On-route device is ELIGIBLE for candidate streaming ─────────
         const busCentroid = busLocationRef.current;
         if (manualOverrideRef.current !== null) {
           commitState(manualOverrideRef.current ? "BOARDED" : "WAITING", lat, lng, speedMs, visible);
           return;
         }
-        // ── Unified State Resolution via Multi-Factor Confidence Score ──
+
+        // ── Multi-Factor Boarding Confidence Score (State Metadata & Classification) ──
         const confidenceResult = calculateBoardingConfidence({
           location: { lat, lng },
           speedMs,
@@ -461,14 +422,14 @@ export function useCrowdsourceTracking(
           accuracyMeters: position.coords.accuracy ?? 15,
         });
 
-        let newState: TrackingState = "WAITING";
+        let newState: TrackingState = "ELIGIBLE";
         if (confidenceResult.isBoarded) {
           if (proximityStartRef.current === null) proximityStartRef.current = now;
           const elapsed = now - proximityStartRef.current;
-          newState = elapsed >= BOARDED_CONFIRM_MS ? "BOARDED" : "WAITING";
+          newState = elapsed >= BOARDED_CONFIRM_MS ? "BOARDED" : "ELIGIBLE";
         } else {
           proximityStartRef.current = null;
-          newState = "WAITING";
+          newState = "ELIGIBLE";
         }
 
         commitState(newState, lat, lng, speedMs, visible);
