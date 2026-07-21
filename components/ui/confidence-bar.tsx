@@ -31,7 +31,7 @@ export function ConfidenceBar({
       {(showLabel || showPercentage) && (
         <div className="flex items-center justify-between">
           {showLabel && (
-            <span className="text-xs text-[#8b8b9e] font-medium">Signal</span>
+            <span className="text-xs text-[#8b8b9e] font-medium">Confidence</span>
           )}
           {showPercentage && (
             <span className="text-xs font-mono" style={{ color }}>

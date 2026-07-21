@@ -154,7 +154,7 @@ export default function AdminPage() {
           {[
             { label: 'Total Buses', value: totalBuses, icon: Bus, color: '#00c4ff' },
             { label: 'Fleet Health', value: '—', icon: Pulse, color: '#22c55e' },
-            { label: 'Active Students', value: '—', icon: Users, color: '#8b5cf6' },
+            { label: 'Active Bus Sensors', value: '—', icon: Users, color: '#8b5cf6' },
             { label: 'Avg. Confidence', value: '—', icon: ChartBar, color: '#f59e0b' },
           ].map(({ label, value, icon: Icon, color }) => (
             <motion.div

@@ -1,25 +1,35 @@
-# BusPulse PRD
+# BusPulse PRD (v1.0 Scope Alignment)
 
 ## Problem
-College transport visibility is fragmented. Students, parents, and admins need a shared near-real-time understanding of bus location and ETA without exposing sensitive contributor identity.
+Most engineering colleges provide transport services but lack live tracking because GPS hardware installation is expensive and difficult to maintain. Students wait without knowing bus locations, parents lack ETA estimation, and transport departments receive repetitive phone calls.
+
+## Solution
+BusPulse creates a virtual GPS tracker using participating student devices acting as **anonymous bus sensors** while traveling inside the bus.
+
+## Positioning & Ethics
+- **Bus Tracking Focus**: The app is strictly marketed and presented as **tracking buses**, never tracking students.
+- **Anonymous Sensors**: Student devices function purely as anonymous spatial sensors during their commute.
+- **Off-Route Auto-Disconnect**: Automatic corridor detection immediately stops location contribution when a user departs the bus or route.
 
 ## Target Users
-- Student rider
-- Parent or guardian linked to a student (phase 2 UX)
-- College transport admin (phase 2 UX)
+- Student rider (assigned bus tracking & arrival alerts)
+- Parent or guardian (linked student bus view & ETA)
+- Transport Admin / Office (fleet-wide monitoring, route management & reports)
 
-## MVP Objectives
-- Student signs in with college account and lands on an immersive map-first tracker.
-- Student sees only assigned bus-level derived state with no contributor identity exposure.
-- Parent and admin routes are de-emphasized and currently redirect into the student tracker.
-- Live layer ingests active-session contributor updates and derives bus-level state.
+## Core Objectives
+- Authenticate via institutional Google OAuth (`signInWithRedirect`) with domain verification.
+- Provide live bus map displaying moving bus marker, polyline route, ETA, and speed.
+- Leader-election crowdsourcing (1 primary leader + 1 backup stream GPS, standby users heartbeat).
+- Zero-knowledge privacy boundary (viewers and admins see derived `busLocations` only).
+- Tiered RBAC: Base student subscription (₹50/mo) for assigned route; Enterprise Transport Office subscription (₹500/mo or institutional plan) for fleet-wide monitoring with college approval.
 
-## Non-Goals (MVP)
-- Background tracking claims beyond active app sessions.
-- Fleet orchestration systems.
-- Real payment integration (subscription model is scaffolded only).
+## Non-Goals
+- Background tracking after leaving the bus/route corridor.
+- Persistent individual location logging or identity tracking.
+- Hardware GPS dependency (optional Pub/Sub IoT path supported in phase 2).
 
 ## Success Signals
-- Students can open the app and quickly reach the live bus map with minimal friction.
-- Setup/status guidance remains available in a lightweight settings screen.
-- Another coding agent can continue implementation from docs without rediscovery.
+- ETA error under 2 minutes.
+- <10s location refresh rate with smooth marker interpolation.
+- Instant auto-disconnect when device leaves bus route boundary.
+

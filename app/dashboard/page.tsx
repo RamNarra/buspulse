@@ -241,9 +241,9 @@ function EtaPanel({
             <StatusBadge status={health.status} />
           )}
           {typeof contributorCount === 'number' && (
-            <div className="flex items-center gap-1.5 text-xs text-[#4a4a5e]">
+            <div className="flex items-center gap-1.5 text-xs text-[#4a4a5e]" title="Anonymous bus sensors on this route">
               <Users size={12} />
-              <span className="font-mono">{contributorCount} active</span>
+              <span className="font-mono">{contributorCount} bus sensors</span>
             </div>
           )}
           <button
@@ -277,8 +277,9 @@ export default function DashboardPage() {
 
   const liveState = useLiveBusState({ busId, userStop });
 
-  // Use official tracking & leader election coordinator hook
-  const { trackingState, peerCount } = useCrowdsourceTracking(stops);
+  const routePath = route?.polyline ?? stops.map((s) => ({ lat: s.lat, lng: s.lng }));
+  // Use official tracking & leader election coordinator hook with off-route protection
+  const { trackingState, peerCount } = useCrowdsourceTracking(stops, routePath);
 
   // Redirect to login if not authenticated
   useEffect(() => {

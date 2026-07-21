@@ -16,6 +16,8 @@ import { useCurrentStudentProfile } from "@/hooks/use-current-student-profile";
 import { haversineMeters } from "@/lib/utils/geo";
 import { useWakeLock } from "@/hooks/use-wake-lock";
 import { useLeaderElection } from "@/hooks/use-leader-election";
+import { evaluateSensorStatus, RoutePoint } from "@/lib/live/off-route-detector";
+import { calculateBoardingConfidence } from "@/lib/live/confidence-boarding";
 
 declare global {
   interface Window {
@@ -27,17 +29,8 @@ export type TrackingState = "IDLE" | "WAITING" | "BOARDED";
 
 // ── Thresholds ────────────────────────────────────────────────────────────────
 
-/** Radius within which a student is considered co-located with the bus. */
-const BOARDED_RADIUS_M = 30;
-
 /** How long (ms) proximity must be maintained before confirming BOARDED. */
 const BOARDED_CONFIRM_MS = 1000;
-
-/**
- * Speed (m/s) at which a user with NO peer bus centroid available can self-
- * promote to BOARDED.
- */
-const COLD_START_SPEED_MS = 0.0;
 
 /**
  * Once BOARDED, stay BOARDED for at least this long even if the user slows
@@ -57,22 +50,6 @@ const STALE_PING_MS = 30_000;
 /** Radius used to check if the user is near a static bus stop. */
 const NEAR_STOP_RADIUS_M = 40;
 
-/** Minimum number of co-located, co-moving peers required for "Mutual Discovery". */
-const MUTUAL_DISCOVERY_PEERS = 2;
-
-/**
- * Speed (m/s) each peer must exceed for Mutual Discovery to trigger.
- * 0.3 m/s ≈ 1 km/h — safe floor; browser GPS speed reports are imprecise.
- */
-const MUTUAL_DISCOVERY_SPEED_MS = 0.3;
-
-/**
- * Peer-to-peer proximity radius for Mutual Discovery.
- * Wider than BOARDED_RADIUS_M because raw browser GPS has ±10–30 m error each,
- * so two students in the same bus may appear 40–80 m apart.
- */
-const MUTUAL_DISCOVERY_RADIUS_M = 80;
-
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 type PeerPing = {
@@ -88,8 +65,12 @@ type BusStop = { lat: number; lng: number };
 // ── Hook ──────────────────────────────────────────────────────────────────────
 
 const EMPTY_STOPS: BusStop[] = [];
+const EMPTY_ROUTE: RoutePoint[] = [];
 
-export function useCrowdsourceTracking(busStops: BusStop[] = EMPTY_STOPS) {
+export function useCrowdsourceTracking(
+  busStops: BusStop[] = EMPTY_STOPS,
+  routePath: RoutePoint[] = EMPTY_ROUTE,
+) {
   const [manualOverride, _setManualOverride] = useState<boolean | null>(null);
   const manualOverrideRef = useRef<boolean | null>(null);
   const setManualOverride = (val: boolean | null) => {
@@ -365,6 +346,21 @@ export function useCrowdsourceTracking(busStops: BusStop[] = EMPTY_STOPS) {
           (error) => console.error("[BusPulse] RTDB remove failed: approachingStudents", error),
         );
         void tryClaimLeadership(visible);
+
+        if (isLeaderRef.current) {
+          const busLocRef = ref(db, `busLocations/${busId}`);
+          void set(busLocRef, {
+            lat,
+            lng,
+            speed: speedMs,
+            heading: newHeadingForRef,
+            accuracy: 10,
+            updatedAt: Date.now(),
+            confidence: 0.9,
+            sourceCount: 1,
+            routeMatchScore: 1.0,
+          }).catch((err) => console.error("[BusPulse] Leader busLocations write failed:", err));
+        }
       } else {
         lastBoardedAtRef.current = null;
         void set(waitingRef, { lat, lng, speed: speedMs, updatedAt: Date.now() }).catch(
@@ -404,6 +400,20 @@ export function useCrowdsourceTracking(busStops: BusStop[] = EMPTY_STOPS) {
           40,
         );
 
+        // ── Off-Route Corridor Check (Instant Auto-Disconnect) ────────────
+        const evalResult = evaluateSensorStatus({
+          location: { lat, lng },
+          routePath,
+          destinationStop: busStops.length > 0 ? busStops[busStops.length - 1] : undefined,
+        });
+
+        if (evalResult.disconnect) {
+          // Immediately disconnect sensor if off-route or reached destination
+          proximityStartRef.current = null;
+          commitState("WAITING", lat, lng, speedMs, visible);
+          return;
+        }
+
         // ── Determine if we are near a known bus stop ─────────────────────
         const nearStop = busStops.some(
           (s) => haversineMeters(lat, lng, s.lat, s.lng) <= NEAR_STOP_RADIUS_M,
@@ -441,33 +451,18 @@ export function useCrowdsourceTracking(busStops: BusStop[] = EMPTY_STOPS) {
           commitState(manualOverrideRef.current ? "BOARDED" : "WAITING", lat, lng, speedMs, visible);
           return;
         }
+        // ── Unified State Resolution via Multi-Factor Confidence Score ──
+        const confidenceResult = calculateBoardingConfidence({
+          location: { lat, lng },
+          speedMs,
+          routePath,
+          peerCount: Object.keys(peersRef.current).length,
+          busSpeedMs: busCentroid ? (busCentroid as { speed?: number }).speed ?? 0 : 0,
+          accuracyMeters: position.coords.accuracy ?? 15,
+        });
+
         let newState: TrackingState = "WAITING";
-
-        // ── 1. Calculate Dynamic Proximity to Bus ──
-        let nearBus = false;
-        if (busCentroid) {
-          const latencySec = (now - busCentroid.ts) / 1000;
-          // Expand the 30m radius to account for speed * latency (up to a 100m cap)
-          const dynamicRadius = Math.min(BOARDED_RADIUS_M + (speedMs * Math.max(0, latencySec)), 100); 
-          const distM = haversineMeters(lat, lng, busCentroid.lat, busCentroid.lng);
-          nearBus = distM <= dynamicRadius;
-        }
-
-        // ── 2. Evaluate Peer Mutual Discovery ──
-        const movingPeersNearby = Object.values(peersRef.current).filter(
-          (p) =>
-            haversineMeters(lat, lng, p.lat, p.lng) <= MUTUAL_DISCOVERY_RADIUS_M &&
-            p.speed >= MUTUAL_DISCOVERY_SPEED_MS,
-        );
-        const hasMutualDiscovery = 
-          movingPeersNearby.length >= MUTUAL_DISCOVERY_PEERS - 1 && // -1 because we count self
-          speedMs >= MUTUAL_DISCOVERY_SPEED_MS;
-
-        const meetsSpeedHeuristic = speedMs >= COLD_START_SPEED_MS;
-
-        // ── 3. Unified State Resolution ──
-        // A user boards if they are near the bus centroid, OR they trigger mutual discovery, OR they trigger the solo speed heuristic
-        if (nearBus || hasMutualDiscovery || meetsSpeedHeuristic) {
+        if (confidenceResult.isBoarded) {
           if (proximityStartRef.current === null) proximityStartRef.current = now;
           const elapsed = now - proximityStartRef.current;
           newState = elapsed >= BOARDED_CONFIRM_MS ? "BOARDED" : "WAITING";
@@ -506,6 +501,7 @@ export function useCrowdsourceTracking(busStops: BusStop[] = EMPTY_STOPS) {
     user,
     student,
     busStops,
+    routePath,
     isLeaderRef,
     releaseWakeLock,
     tryClaimLeadership,
