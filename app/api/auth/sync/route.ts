@@ -106,7 +106,8 @@ export async function POST(req: NextRequest) {
         }
 
         if (studentData) {
-          assignedBusId = studentData.busId ?? "";
+          const rawBusId = studentData.busId ?? "";
+          assignedBusId = rawBusId ? (rawBusId.startsWith("bus-a") ? rawBusId : `bus-a${rawBusId}`) : "";
         }
       }
     }

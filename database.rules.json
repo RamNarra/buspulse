@@ -13,7 +13,7 @@
     "trackerMappings": {
       "$uuid": {
         ".read":  "auth != null && data.child('uid').val() === auth.uid",
-        ".write": "auth != null && (!data.exists() || data.child('uid').val() === auth.uid) && (!newData.exists() || (newData.child('uid').val() === auth.uid && (newData.child('busId').val() === auth.token.assignedBusId || auth.token.assignedBusId == null || auth.token.assignedBusId == '')))"
+        ".write": "auth != null && (!data.exists() || data.child('uid').val() === auth.uid) && (!newData.exists() || (newData.child('uid').val() === auth.uid && (newData.child('busId').val() === auth.token.assignedBusId || ('bus-a' + newData.child('busId').val()) === auth.token.assignedBusId || auth.token.assignedBusId == null || auth.token.assignedBusId == '')))"
       }
     },
 
@@ -21,7 +21,7 @@
       "$busId": {
         ".read": "auth != null",
         "$uuid": {
-          ".write": "auth != null && (auth.token.role === 'student' || auth.token.role == null) && (auth.token.assignedBusId === $busId || auth.token.assignedBusId == null || auth.token.assignedBusId == '')"
+          ".write": "auth != null && (auth.token.role === 'student' || auth.token.role == null) && (auth.token.assignedBusId === $busId || ('bus-a' + auth.token.assignedBusId) === $busId || auth.token.assignedBusId == null || auth.token.assignedBusId == '')"
         }
       }
     },
@@ -30,7 +30,7 @@
       "$busId": {
         ".read": "auth != null",
         "$uuid": {
-          ".write": "auth != null && (auth.token.role === 'student' || auth.token.role == null) && (auth.token.assignedBusId === $busId || auth.token.assignedBusId == null || auth.token.assignedBusId == '')"
+          ".write": "auth != null && (auth.token.role === 'student' || auth.token.role == null) && (auth.token.assignedBusId === $busId || ('bus-a' + auth.token.assignedBusId) === $busId || auth.token.assignedBusId == null || auth.token.assignedBusId == '')"
         }
       }
     },
@@ -39,7 +39,7 @@
       "$busId": {
         ".read":  "auth != null",
         "leader": {
-          ".write": "auth != null && (auth.token.assignedBusId === $busId || auth.token.assignedBusId == null || auth.token.assignedBusId == '')"
+          ".write": "auth != null && (auth.token.assignedBusId === $busId || ('bus-a' + auth.token.assignedBusId) === $busId || auth.token.assignedBusId == null || auth.token.assignedBusId == '')"
         }
       }
     },
