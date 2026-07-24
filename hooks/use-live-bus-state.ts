@@ -10,6 +10,7 @@ import { estimateEtaMinutes } from '@/lib/live/eta';
 interface UseLiveBusStateOptions {
   busId: string | null;
   userStop?: Stop | null;
+  stops?: Stop[];
 }
 
 export interface LiveBusState {
@@ -26,6 +27,7 @@ export interface LiveBusState {
 export function useLiveBusState({
   busId,
   userStop,
+  stops,
 }: UseLiveBusStateOptions): LiveBusState {
   const [state, setState] = useState<LiveBusState>({
     location: null,
@@ -55,7 +57,7 @@ export function useLiveBusState({
         }
 
         const etaMinutes = userStop
-          ? estimateEtaMinutes(snapshot.location, userStop)
+          ? estimateEtaMinutes(snapshot.location, userStop, stops)
           : null;
 
         setState({
@@ -94,7 +96,7 @@ export function useLiveBusState({
               };
 
               const etaMinutes = userStop
-                ? estimateEtaMinutes(fallbackLoc, userStop)
+                ? estimateEtaMinutes(fallbackLoc, userStop, stops)
                 : null;
 
               setState({

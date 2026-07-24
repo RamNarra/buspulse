@@ -1,10 +1,13 @@
 "use strict";
-// Pure TypeScript geohash — mirrors lib/utils/geohash.ts (functions can't
-// import from the Next.js app tree).
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.geohashEncode = geohashEncode;
 exports.geohashDecode = geohashDecode;
+exports.geohash9 = geohash9;
 const BASE32 = "0123456789bcdefghjkmnpqrstuvwxyz";
+/**
+ * Encode a lat/lng pair into a geohash string.
+ * Default precision 5 gives ~5 km × 5 km cells.
+ */
 function geohashEncode(lat, lng, precision = 5) {
     let idx = 0;
     let bit = 0;
@@ -44,6 +47,9 @@ function geohashEncode(lat, lng, precision = 5) {
     }
     return result;
 }
+/**
+ * Decode a geohash string back to lat/lng plus the half-error of each axis.
+ */
 function geohashDecode(hash) {
     let even = true;
     let latMin = -90, latMax = 90;
@@ -77,5 +83,28 @@ function geohashDecode(hash) {
         latErr: (latMax - latMin) / 2,
         lngErr: (lngMax - lngMin) / 2,
     };
+}
+/**
+ * Returns the center cell plus all 8 surrounding neighbor cells (9 total,
+ * deduplicated).
+ */
+function geohash9(hash) {
+    const { lat, lng, latErr, lngErr } = geohashDecode(hash);
+    const dLat = latErr * 2;
+    const dLng = lngErr * 2;
+    const p = hash.length;
+    return [
+        ...new Set([
+            hash,
+            geohashEncode(lat + dLat, lng, p), // N
+            geohashEncode(lat - dLat, lng, p), // S
+            geohashEncode(lat, lng + dLng, p), // E
+            geohashEncode(lat, lng - dLng, p), // W
+            geohashEncode(lat + dLat, lng + dLng, p), // NE
+            geohashEncode(lat - dLat, lng + dLng, p), // SE
+            geohashEncode(lat + dLat, lng - dLng, p), // NW
+            geohashEncode(lat - dLat, lng - dLng, p), // SW
+        ]),
+    ];
 }
 //# sourceMappingURL=geohash.js.map

@@ -24,27 +24,25 @@ service cloud.firestore {
 
     // ── Buses ────────────────────────────────────────────────────────────────
     match /buses/{busId} {
-      allow read: if isAdmin() || isGodMode() || (isSignedIn() && request.auth.token.assignedBusId == busId);
+      allow read: if isSignedIn();
       allow write: if isAdmin();
     }
 
     // ── Live Buses ───────────────────────────────────────────────────────────
     match /live_buses/{busId} {
-      allow read: if isAdmin() || isGodMode() || (isSignedIn() && request.auth.token.assignedBusId == busId);
+      allow read: if isSignedIn();
       allow write: if false; // Only backend (Firebase Admin SDK) can write here.
     }
 
     // ── Routes ───────────────────────────────────────────────────────────────
     match /routes/{routeId} {
-      allow read: if isAdmin() || isGodMode() || (isSignedIn() && request.auth.token.assignedRouteId == routeId);
+      allow read: if isSignedIn();
       allow write: if isAdmin();
     }
 
     // ── Stops ────────────────────────────────────────────────────────────────
     match /stops/{stopId} {
-      allow read: if isAdmin()
-        || isGodMode()
-        || (isSignedIn() && resource.data.routeId == request.auth.token.assignedRouteId);
+      allow read: if isSignedIn();
       allow write: if isAdmin();
     }
 

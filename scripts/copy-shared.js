@@ -36,7 +36,12 @@ for (const copy of copies) {
     if (!fs.existsSync(destDir)) {
       fs.mkdirSync(destDir, { recursive: true });
     }
-    fs.copyFileSync(srcPath, destPath);
+    let content = fs.readFileSync(srcPath, "utf8");
+    if (copy.dest.startsWith("functions/src/")) {
+      content = content.replace(/from ['"]\.\.\/utils\/geo['"]/g, "from './geo'");
+      content = content.replace(/from ['"]\.\.\/utils\/geohash['"]/g, "from './geohash'");
+    }
+    fs.writeFileSync(destPath, content, "utf8");
     console.log(`✓ Copied ${copy.src} -> ${copy.dest}`);
   } catch (err) {
     console.error(`✗ Failed to copy ${copy.src} -> ${copy.dest}:`, err.message);

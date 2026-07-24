@@ -44,6 +44,7 @@ const kalmanState: Record<string, ReturnType<typeof createKalmanFilter>> = {};
 export const aggregateBusLocation = onValueWritten(
   {
     ref: "trackerCandidates/{busId}/{uuid}",
+    instance: "buspulse-493407-default-rtdb",
     region: FUNCTION_REGION,
   },
   async (event) => {
@@ -101,7 +102,7 @@ export const aggregateBusLocation = onValueWritten(
     // 5. Apply DBSCAN spatial density clustering when >= 2 candidates exist
     const clusteredCandidates =
       filtered.length >= 2
-        ? findLargestSpatialCluster(filtered)
+        ? findLargestSpatialCluster(filtered).primaryCluster
         : filtered;
 
     // 6. Derive weighted centroid

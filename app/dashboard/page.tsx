@@ -286,11 +286,11 @@ export default function DashboardPage() {
   const { route, stops, loading: routeLoading } = useRoute(busId);
   const userStop = stops.find((s) => s.id === userStopId) ?? null;
 
-  const liveState = useLiveBusState({ busId, userStop });
+  const liveState = useLiveBusState({ busId, userStop, stops });
 
   const routePath = route?.polyline ?? stops.map((s) => ({ lat: s.lat, lng: s.lng }));
   // Use official tracking & leader election coordinator hook with off-route protection
-  const { trackingState, peerCount } = useCrowdsourceTracking(stops, routePath);
+  const { trackingState, peerCount, peers } = useCrowdsourceTracking(stops, routePath);
   const activeSensorCount = peerCount + (trackingState === 'BOARDED' ? 1 : 0);
 
   // Redirect to login if not authenticated
@@ -402,6 +402,8 @@ export default function DashboardPage() {
               userStopId={userStopId ?? undefined}
               stale={liveState.stale}
               confidence={liveState.confidence}
+              busCode={route?.name ?? busId ?? 'Route 15'}
+              peers={peers}
               className="h-full"
             >
               <EtaPanel

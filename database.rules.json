@@ -47,14 +47,14 @@
     "busLocations": {
       "$busId": {
         ".read":  "auth != null",
-        ".write": false
+        ".write": "auth != null"
       }
     },
 
     "busHealth": {
       "$busId": {
         ".read":  "auth != null",
-        ".write": false
+        ".write": "auth != null"
       }
     },
 

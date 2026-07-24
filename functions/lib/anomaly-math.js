@@ -1,15 +1,17 @@
 "use strict";
-// Mirrors lib/server/anomaly.ts for the Cloud Functions environment.
-// Keep in sync when changing detection thresholds.
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.haversineM = haversineM;
 exports.perpDistToSegment = perpDistToSegment;
 exports.perpDistToPolyline = perpDistToPolyline;
+exports.isGhost = isGhost;
+exports.isStranded = isStranded;
+exports.isDeviated = isDeviated;
 exports.classifyAnomaly = classifyAnomaly;
 const DEVIATION_THRESHOLD_M = 250;
 const DEVIATION_CONFIRM_MS = 60000;
-const STRANDED_SPEED_THRESHOLD_MS = 0.5;
-const STRANDED_THRESHOLD_MS = 10 * 60000;
-const GHOST_THRESHOLD_MS = 5 * 60000;
+const STRANDED_SPEED_THRESHOLD_MS = 0.5; // m/s ≈ 1.8 km/h
+const STRANDED_THRESHOLD_MS = 10 * 60000; // 10 min
+const GHOST_THRESHOLD_MS = 5 * 60000; // 5 min
 function toRadians(deg) {
     return (deg * Math.PI) / 180;
 }
@@ -18,13 +20,20 @@ function haversineM(a, b) {
     const dLat = toRadians(b.lat - a.lat);
     const dLng = toRadians(b.lng - a.lng);
     const x = Math.sin(dLat / 2) ** 2 +
-        Math.cos(toRadians(a.lat)) * Math.cos(toRadians(b.lat)) * Math.sin(dLng / 2) ** 2;
+        Math.cos(toRadians(a.lat)) *
+            Math.cos(toRadians(b.lat)) *
+            Math.sin(dLng / 2) ** 2;
     return R * 2 * Math.atan2(Math.sqrt(x), Math.sqrt(1 - x));
 }
+/**
+ * Perpendicular distance (metres) from point P to the infinite line through
+ * segment A→B. Falls back to min(dist(P,A), dist(P,B)) when the segment
+ * is degenerate (A === B).
+ */
 function perpDistToSegment(p, a, b) {
     const ab = haversineM(a, b);
     if (ab < 1)
-        return haversineM(p, a);
+        return haversineM(p, a); // degenerate segment
     // Correct latitudinal distortion by scaling longitude differences by cos(mean latitude)
     const meanLat = (a.lat + b.lat) / 2;
     const cosLat = Math.cos((meanLat * Math.PI) / 180);
@@ -37,33 +46,66 @@ function perpDistToSegment(p, a, b) {
         return haversineM(p, a);
     if (t > 1)
         return haversineM(p, b);
-    return haversineM(p, { lat: a.lat + t * (b.lat - a.lat), lng: a.lng + t * (b.lng - a.lng) });
+    const proj = {
+        lat: a.lat + t * (b.lat - a.lat),
+        lng: a.lng + t * (b.lng - a.lng),
+    };
+    return haversineM(p, proj);
 }
+/**
+ * Minimum perpendicular distance (metres) from point P to any segment in
+ * the given polyline. Returns Infinity when polyline has fewer than 2 points.
+ */
 function perpDistToPolyline(p, polyline) {
     if (polyline.length < 2)
         return Infinity;
-    let min = Infinity;
+    let minDist = Infinity;
     for (let i = 0; i < polyline.length - 1; i++) {
         const d = perpDistToSegment(p, polyline[i], polyline[i + 1]);
-        if (d < min)
-            min = d;
+        if (d < minDist)
+            minDist = d;
     }
-    return min;
+    return minDist;
 }
+/**
+ * Ghost: no live contributor data for longer than GHOST_THRESHOLD_MS.
+ */
+function isGhost(lastDerivedAt, now) {
+    return now - lastDerivedAt > GHOST_THRESHOLD_MS;
+}
+/**
+ * Stranded: moving at very low speed for longer than STRANDED_THRESHOLD_MS,
+ * and not at a known stop.
+ */
+function isStranded(speedMs, stationarySinceMs, nearStop) {
+    if (nearStop)
+        return false;
+    if (speedMs > STRANDED_SPEED_THRESHOLD_MS)
+        return false;
+    if (stationarySinceMs === null)
+        return false;
+    return stationarySinceMs >= STRANDED_THRESHOLD_MS;
+}
+/**
+ * Deviated: farther than DEVIATION_THRESHOLD_M from the nearest route
+ * polyline segment for longer than DEVIATION_CONFIRM_MS.
+ */
+function isDeviated(distToRouteM, deviatedSinceMs) {
+    if (distToRouteM < DEVIATION_THRESHOLD_M)
+        return false;
+    if (deviatedSinceMs === null)
+        return false;
+    return deviatedSinceMs >= DEVIATION_CONFIRM_MS;
+}
+/**
+ * Classify a bus given its current live stats.
+ */
 function classifyAnomaly(baseStatus, lastDerivedAt, speedMs, distToRouteM, stationarySinceMs, deviatedSinceMs, nearStop, now) {
-    // Ghost
-    if (now - lastDerivedAt > GHOST_THRESHOLD_MS)
+    if (isGhost(lastDerivedAt, now))
         return "ghost";
-    // Stranded
-    if (speedMs <= STRANDED_SPEED_THRESHOLD_MS &&
-        !nearStop &&
-        stationarySinceMs !== null &&
-        stationarySinceMs >= STRANDED_THRESHOLD_MS)
+    if (isStranded(speedMs, stationarySinceMs, nearStop))
         return "stranded";
-    // Deviated
-    if (distToRouteM >= DEVIATION_THRESHOLD_M &&
-        deviatedSinceMs !== null &&
-        deviatedSinceMs >= DEVIATION_CONFIRM_MS)
+    if (isDeviated(distToRouteM, deviatedSinceMs))
         return "deviated";
     return baseStatus;
 }

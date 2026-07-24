@@ -1,4 +1,4 @@
-import { haversineMeters } from '../utils/geo';
+import { haversineMeters } from './geo';
 
 export interface SpatialCandidate {
   id?: string;

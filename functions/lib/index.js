@@ -40,6 +40,8 @@ const geo_1 = require("./geo");
 const geohash_1 = require("./geohash");
 const snap_to_roads_1 = require("./snap-to-roads");
 const scoring_1 = require("./scoring");
+const clustering_1 = require("./clustering");
+const kalman_1 = require("./kalman");
 const region_1 = require("./region");
 var anomaly_1 = require("./anomaly");
 Object.defineProperty(exports, "detectAnomalies", { enumerable: true, get: function () { return anomaly_1.detectAnomalies; } });
@@ -49,10 +51,10 @@ var fcm_notify_1 = require("./fcm-notify");
 Object.defineProperty(exports, "notifyApproachingStudents", { enumerable: true, get: function () { return fcm_notify_1.notifyApproachingStudents; } });
 admin.initializeApp();
 const db = admin.database();
-// ── EMA state store (in-memory, per Cloud Function container instance) ────────
-// Survives across warm invocations; decays naturally when the instance recycles.
+// ── State stores (in-memory, per Cloud Function container instance) ──────────
 const EMA_ALPHA = 0.4;
 const emaState = {};
+const kalmanState = {};
 // ── Aggregator function ───────────────────────────────────────────────────────
 /**
  * Fires on every write to `trackerCandidates/{busId}/{uuid}`.
@@ -66,6 +68,7 @@ const emaState = {};
  */
 exports.aggregateBusLocation = (0, database_1.onValueWritten)({
     ref: "trackerCandidates/{busId}/{uuid}",
+    instance: "buspulse-493407-default-rtdb",
     region: region_1.FUNCTION_REGION,
 }, async (event) => {
     const busId = event.params.busId;
@@ -97,8 +100,12 @@ exports.aggregateBusLocation = (0, database_1.onValueWritten)({
     const filtered = prev
         ? candidates.filter((c) => !(0, geo_1.isLocationOutlier)(prev.lat, prev.lng, prev.updatedAt, c.lat, c.lng, (c.submittedAt || c.updatedAt || Date.now())))
         : candidates;
-    // 5. Derive weighted centroid
-    const derived = (0, scoring_1.deriveLocationFromCandidates)(filtered, now);
+    // 5. Apply DBSCAN spatial density clustering when >= 2 candidates exist
+    const clusteredCandidates = filtered.length >= 2
+        ? (0, clustering_1.findLargestSpatialCluster)(filtered).primaryCluster
+        : filtered;
+    // 6. Derive weighted centroid
+    const derived = (0, scoring_1.deriveLocationFromCandidates)(clusteredCandidates, now);
     const staleCandidateCount = filtered.filter((c) => (0, scoring_1.isCandidateStale)(c, now)).length;
     if (!derived) {
         const health = {
@@ -112,7 +119,7 @@ exports.aggregateBusLocation = (0, database_1.onValueWritten)({
         await db.ref(`busHealth/${busId}`).set(health);
         return;
     }
-    // 6. EMA smoothing — blends new reading with previous smoothed position
+    // 7. EMA smoothing — blends new reading with previous smoothed position
     const prevEma = emaState[busId];
     if (prevEma) {
         derived.lat = EMA_ALPHA * derived.lat + (1 - EMA_ALPHA) * prevEma.lat;
@@ -125,6 +132,16 @@ exports.aggregateBusLocation = (0, database_1.onValueWritten)({
         lng: derived.lng,
         speed: derived.speed ?? 0,
     };
+    // 8. 2D Constant Velocity Kalman Filter — smooths trajectories and predicts motion
+    if (!kalmanState[busId]) {
+        kalmanState[busId] = (0, kalman_1.createKalmanFilter)(derived.lat, derived.lng);
+    }
+    else {
+        const kState = (0, kalman_1.updateKalmanState)(kalmanState[busId], derived.lat, derived.lng, now);
+        kalmanState[busId] = kState;
+        derived.lat = kState.lat;
+        derived.lng = kState.lng;
+    }
     // 7. Compute health
     const health = {
         busId,

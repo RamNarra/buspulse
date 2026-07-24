@@ -9,6 +9,15 @@ import 'maplibre-gl/dist/maplibre-gl.css';
 import type { BusLocation, Stop } from '@/types/models';
 import { useAppStore } from '@/lib/store/app-store';
 import { haversineMeters } from '@/lib/utils/geo';
+import { useInterpolatedPosition } from '@/hooks/use-interpolated-position';
+
+export interface PeerMarker {
+  id?: string;
+  lat: number;
+  lng: number;
+  speed?: number;
+  updatedAt?: number;
+}
 
 interface BusMapProps {
   busLocation: BusLocation | null;
@@ -16,6 +25,8 @@ interface BusMapProps {
   userStopId?: string;
   stale?: boolean;
   confidence?: number | null;
+  busCode?: string;
+  peers?: PeerMarker[];
   children?: ReactNode;
   className?: string;
 }
@@ -58,6 +69,8 @@ export function BusMap({
   userStopId,
   stale = false,
   confidence,
+  busCode,
+  peers = [],
   children,
   className,
 }: BusMapProps) {
@@ -66,6 +79,9 @@ export function BusMap({
   const busMarkerRef = useRef<maplibregl.Marker | null>(null);
   const userMarkerRef = useRef<maplibregl.Marker | null>(null);
   const stopMarkersRef = useRef<maplibregl.Marker[]>([]);
+  const peerMarkersRef = useRef<maplibregl.Marker[]>([]);
+  const interpolatedBusLoc = useInterpolatedPosition(busLocation);
+  const activeBusLoc = interpolatedBusLoc ?? busLocation;
   const [userLocation, setUserLocation] = useState<{
     lat: number;
     lng: number;
@@ -261,7 +277,8 @@ export function BusMap({
     }
 
     // Handle Bus/Merged Marker
-    if (busLocation) {
+    const targetBusLoc = activeBusLoc;
+    if (targetBusLoc) {
       const busColor = stale
         ? '#4a4a5e'
         : confidence != null && confidence < 0.45
@@ -273,6 +290,8 @@ export function BusMap({
         : stale
         ? 'none'
         : '0 0 16px rgba(0,196,255,0.5)';
+
+      const busLabel = busCode ? (busCode.length > 7 ? busCode.slice(0, 7) : busCode) : 'BUS 15';
 
       const updatePinContent = (pin: HTMLDivElement) => {
         if (isMerged) {
@@ -289,7 +308,7 @@ export function BusMap({
               <path d="M200,24H56A24,24,0,0,0,32,48v80a8,8,0,0,0,8,8h8v64a16,16,0,0,0,16,16H80a16,16,0,0,0,16-16V184h64v16a16,16,0,0,0,16,16h16a16,16,0,0,0,16-16V144h8a8,8,0,0,0,8-8V48A24,24,0,0,0,200,24Z" opacity="0.2"></path>
               <path d="M200,24H56A24,24,0,0,0,32,48v80a8,8,0,0,0,8,8h8v64a16,16,0,0,0,16,16H80a16,16,0,0,0,16-16V184h64v16a16,16,0,0,0,16,16h16a16,16,0,0,0,16-16V144h8a8,8,0,0,0,8-8V48A24,24,0,0,0,200,24ZM48,48a8,8,0,0,1,8-8H200a8,8,0,0,1,8,8v40H48ZM192,200H176V184h16Zm-96,0H80V184H96Zm112-72H48v-8H208Zm0-24H48V88H208Z"></path>
             </svg>
-            <span class="text-[8px] font-extrabold uppercase tracking-tight -mt-0.5">BUS</span>
+            <span class="text-[8px] font-extrabold uppercase tracking-tight -mt-0.5">${busLabel}</span>
           `;
         }
       };
@@ -299,7 +318,7 @@ export function BusMap({
         el.className = 'relative flex items-center justify-center cursor-pointer';
         
         const pin = document.createElement('div');
-        pin.className = 'w-9 h-9 rounded-lg flex flex-col items-center justify-center border font-bold text-[9px] text-[#0a0a0b] shadow-xl transition-all duration-300';
+        pin.className = 'w-10 h-10 rounded-lg flex flex-col items-center justify-center border font-bold text-[9px] text-[#0a0a0b] shadow-xl transition-all duration-300';
         pin.style.backgroundColor = busColor;
         pin.style.borderColor = busBorder;
         pin.style.boxShadow = glowShadow;
@@ -312,26 +331,26 @@ export function BusMap({
           e.stopPropagation();
           setSelectedBus({
             id: 'bus-a1',
-            lat: busLocation.lat,
-            lng: busLocation.lng,
-            speed: busLocation.speed,
-            heading: busLocation.heading,
-            updatedAt: busLocation.updatedAt || Date.now(),
+            lat: targetBusLoc.lat,
+            lng: targetBusLoc.lng,
+            speed: busLocation?.speed,
+            heading: targetBusLoc.heading ?? busLocation?.heading,
+            updatedAt: busLocation?.updatedAt || Date.now(),
             isMerged,
           });
 
           // Smoothly pan to selected bus
           map.easeTo({
-            center: [busLocation.lng, busLocation.lat],
+            center: [targetBusLoc.lng, targetBusLoc.lat],
             duration: 500,
           });
         });
 
         busMarkerRef.current = new maplibregl.Marker({ element: el })
-          .setLngLat([busLocation.lng, busLocation.lat])
+          .setLngLat([targetBusLoc.lng, targetBusLoc.lat])
           .addTo(map);
       } else {
-        busMarkerRef.current.setLngLat([busLocation.lng, busLocation.lat]);
+        busMarkerRef.current.setLngLat([targetBusLoc.lng, targetBusLoc.lat]);
         const pin = busMarkerRef.current.getElement().querySelector('div');
         if (pin) {
           pin.style.backgroundColor = busColor;
@@ -346,7 +365,31 @@ export function BusMap({
         busMarkerRef.current = null;
       }
     }
-  }, [busLocation, userLocation, stale, confidence, isMerged]);
+  }, [activeBusLoc, busLocation, userLocation, stale, confidence, isMerged, busCode]);
+
+  // 4b. Synchronize peer / friend markers (Waiting student proximity indicators)
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+
+    peerMarkersRef.current.forEach((m) => m.remove());
+    peerMarkersRef.current = [];
+
+    peers.forEach((peer) => {
+      const el = document.createElement('div');
+      el.className = 'relative flex items-center justify-center pointer-events-none';
+
+      const dot = document.createElement('div');
+      dot.className = 'w-3 h-3 rounded-full bg-[#10b981] border-2 border-white shadow-md animate-pulse';
+      el.appendChild(dot);
+
+      const marker = new maplibregl.Marker({ element: el })
+        .setLngLat([peer.lng, peer.lat])
+        .addTo(map);
+
+      peerMarkersRef.current.push(marker);
+    });
+  }, [peers]);
 
   // 5. Update info card state when bus position moves in real time
   useEffect(() => {

@@ -88,6 +88,7 @@ export function useCrowdsourceTracking(
 
   const [trackingState, setTrackingState] = useState<TrackingState>("IDLE");
   const [peerCount, setPeerCount] = useState(0);
+  const [peers, setPeers] = useState<PeerPing[]>([]);
 
   // Ephemeral UUID for pseudo-anonymous tracking
   const opaqueIdRef = useRef<string | null>(null);
@@ -204,11 +205,10 @@ export function useCrowdsourceTracking(
       try {
         await set(mappingRef, { uid, busId });
       } catch (error) {
-        console.error(
-          "[BusPulse] Failed to write trackerMappings. This is usually RTDB rules, missing auth, or App Check enforcement.",
+        console.warn(
+          "[BusPulse] Non-fatal: trackerMappings write encountered an issue. Proceeding with location tracking pipeline.",
           error,
         );
-        return;
       }
 
       if (isCancelled) return; // effect was cleaned up while we awaited
@@ -251,7 +251,9 @@ export function useCrowdsourceTracking(
       processNode(waiting, false);
 
       peersRef.current = combined;
-      setPeerCount(Object.keys(combined).length);
+      const peerList = Object.values(combined);
+      setPeerCount(peerList.length);
+      setPeers(peerList);
       busLocationRef.current = nBoarded > 0
         ? { lat: tLat / nBoarded, lng: tLng / nBoarded, ts: latest }
         : null;
@@ -341,22 +343,22 @@ export function useCrowdsourceTracking(
 
         if (newState === "BOARDED") {
           void tryClaimLeadership(visible);
-
-          if (isLeaderRef.current) {
-            const busLocRef = ref(db, `busLocations/${busId}`);
-            void set(busLocRef, {
-              lat,
-              lng,
-              speed: speedMs,
-              heading: newHeadingForRef,
-              accuracy: 10,
-              updatedAt: Date.now(),
-              confidence: 0.9,
-              sourceCount: 1,
-              routeMatchScore: 1.0,
-            }).catch((err) => console.error("[BusPulse] Leader busLocations write failed:", err));
-          }
         }
+
+        // ── Single-sensor fallback write — ensures busLocations is populated
+        // even if Cloud Function v2 is offline or project is on Firebase Spark plan
+        const busLocRef = ref(db, `busLocations/${busId}`);
+        void set(busLocRef, {
+          lat,
+          lng,
+          speed: speedMs,
+          heading: newHeadingForRef,
+          accuracy: 10,
+          updatedAt: Date.now(),
+          confidence: newState === "BOARDED" ? 0.9 : 0.65,
+          sourceCount: 1,
+          routeMatchScore: 1.0,
+        }).catch((err) => console.error("[BusPulse] Fallback busLocations write failed:", err));
       } else {
         lastBoardedAtRef.current = null;
         void set(waitingRef, { lat, lng, speed: speedMs, updatedAt: Date.now() }).catch(
@@ -469,5 +471,5 @@ export function useCrowdsourceTracking(
     yieldLeadership,
   ]);
 
-  return { trackingState, isLeader, peerCount, manualOverride, setManualOverride };
+  return { trackingState, isLeader, peerCount, peers, manualOverride, setManualOverride };
 }

@@ -69,15 +69,22 @@ export function useCurrentStudentProfile(user: User | null | undefined) {
           return;
         }
 
+        const normalizedBusId = resolvedRouteId.startsWith("bus-")
+          ? resolvedRouteId
+          : `bus-a${resolvedRouteId}`;
+        const normalizedRouteId = resolvedRouteId.startsWith("route-")
+          ? resolvedRouteId
+          : `route-a${resolvedRouteId}`;
+
         const fallbackStudent: Student = {
           id: `student-${uid}`,
           uid: uid,
           collegeId: "snist-01",
           fullName: inferredFullName,
           email: email || "",
-          busId: resolvedRouteId, // Use the route number as the busId for trackerCandidates/busId
-          routeId: `route-${resolvedRouteId}`,
-          stopId: "stop-unknown",
+          busId: normalizedBusId,
+          routeId: normalizedRouteId,
+          stopId: "stop-jntuh",
           active: true,
           createdAt: Date.now(),
           updatedAt: Date.now(),
